@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>
+			C64 PETSCII Art Generator
+		</title>
+		<style type='text/css'>
+		
+		</style>
+	</head>
+	<body onload='init();'>
+		<script type='text/javascript'>
+			var CHARSET    = "upperlower"
+			var CHARACTERS = 256;
+			var WIDTH 		 = 320;
+			var HEIGHT 		 = 200;
+			var CWIDTH     = 8;
+			var CHEIGHT    = 8;
+			
+			var canvas;
+			var source;
+			var context;
+			var character;
+			
+			var chardata = [];
+			var srcdata  = [];
+			var petscii  = new Uint8Array( (WIDTH/CWIDTH) * (HEIGHT/CHEIGHT) );
+			
+			var characterContainer;
+			var characterCanvas = [];
+			
+			var saveByteArray = (function () {
+				var a = document.createElement("a");
+				document.body.appendChild(a);
+				a.style = "display: none";
+				
+				return function (data, name) {
+					var blob = new Blob([data], {type: "application/octet-stream"});
+					var url  = window.URL.createObjectURL(blob);
+					
+					a.href = url;
+					a.download = name;
+					a.click();
+					
+					window.URL.revokeObjectURL(url);
+				};
+			}());
+			
+			function init() {
+				document.getElementById('savebut').onclick = function() {
+					saveByteArray(petscii,document.getElementById('filename').value);
+				};
+			
+				source = document.getElementById('source');
+				canvas = document.getElementById('canvas');
+				
+				context = canvas.getContext("2d");
+				context.drawImage(source,0,0,WIDTH,HEIGHT);
+				
+				srcdata = greyscale(context,WIDTH,HEIGHT);
+				
+				character 				 = document.getElementById("character");
+				characterContainer = document.getElementById("charsetContainer");
+	
+				for(var i=0;i<CHARACTERS;i++) {
+					var charCanvas = document.createElement("canvas");
+					charCanvas.setAttribute("width", CWIDTH);
+					charCanvas.setAttribute("height",CHEIGHT);
+					
+					charCanvas.style.width  		 = CWIDTH+ "px";
+					charCanvas.style.height 		 = CHEIGHT+"px";
+					charCanvas.style.marginRight = "5px";
+					
+					characterContainer.appendChild(charCanvas);
+					characterCanvas.push(charCanvas);
+					
+					if((i + 1) % 32 == 0)
+						characterContainer.appendChild(document.createElement("br"));
+				}
+	
+				var i = 0;
+				
+				character.onload = function() {
+					var charCanvas  = characterCanvas[i];
+					var charContext = charCanvas.getContext("2d");
+					
+					charContext.drawImage(character,0,0);
+					
+					pxbuf = greyscale(charContext,CWIDTH,CHEIGHT,true); //Skip Dither
+					
+					for(var px=0;px<pxbuf.length;px++) {
+						if(pxbuf[px] < 128)
+							pxbuf[px] = 0;
+						else
+							pxbuf[px] = 255;
+					}
+
+					chardata[i] = pxbuf;
+					i++;
+					loadCharacter();
+				};
+
+				var loadCharacter = function() {
+					if(i >= CHARACTERS) {
+						render();
+						return;
+					}
+					character.src = CHARSET+"/"+i+".gif";
+				};
+				
+				loadCharacter();
+			}
+			
+			var greyscale = function(context,w,h,skip) {
+				var imgd = context.getImageData(0, 0, w,h);
+				var pix  = imgd.data;
+				
+				var x = 0;
+				var y = 0;
+				
+				var id = context.createImageData(1,1);
+				var d  = id.data;
+				
+				var ebBuf = [];
+				
+				for(var i=0,il=pix.length;i<il;i+=4) {
+					var grayscale = pix[i  ] * .3  + 
+													pix[i+1] * .59 + 
+													pix[i+2] * .11;
+	
+					//Weight the alpha channel. --Thanks to Chris Roy!
+					var aDiff = 256 - pix[i+3];
+					var gDiff = 256 - grayscale;
+
+					grayscale = (gDiff * aDiff / 256) + grayscale;
+
+					ebBuf.push(grayscale);
+				}
+
+				if(!skip) {
+					dither(ebBuf,w,h);
+				
+					for(var i=0;i<ebBuf.length;i++) {
+						d[0]   = ebBuf[i];
+						d[1]   = ebBuf[i];
+						d[2]   = ebBuf[i];
+						d[3]   = 255;
+						context.putImageData(id,x,y);				
+		
+						x++;
+						if(x >= 320) {
+							x = 0
+							y++;
+						}
+					}
+				}
+				
+				return ebBuf;
+			};
+
+			var dither = function(sb, w, h) {   // source buffer, width, height
+				for(var i=0; i<h; i++) {
+					for(var j=0; j<w; j++) {
+						var ci = i*w+j;               // current buffer index
+						var cc = sb[ci];              // current color
+						var rc = (cc<128?0:255);      // real (rounded) color
+						var err = cc-rc;              // error amount
+
+						sb[ci] = rc;                  // saving real color
+
+						if(j+1 < w) 
+							sb[ci  +1] += (err*7)>>4;  // if right neighbour exists
+	
+						if(i+1 == h) 
+							continue;   // if we are in the last line
+	
+						if(j > 0) 
+							sb[ci+w-1] += (err*3)>>4;  // bottom left neighbour
+	
+						sb[ci+w] += (err*5)>>4;  // bottom neighbour
+
+						if(j+1<w) 
+							sb[ci+w+1] += (err*1)>>4;  // bottom right neighbour
+					}
+				}
+			};			
+			
+			var render = function() {
+				var charsWide = WIDTH  / CWIDTH;
+				var charsHigh = HEIGHT / CHEIGHT;
+			
+				var charCount = charsWide * charsHigh;
+				
+				var c = 0;
+				for(var y=0;y<charsHigh;y++) {
+					for(var x=0;x<charsWide;x++) {
+						var charBuf  = getSourceChar(c);
+						var petValue = findMatch(charBuf);
+					
+						petscii[c] = petValue;
+						
+						context.drawImage(characterCanvas[petValue],x*CWIDTH,y*CHEIGHT);
+						c++;
+					}
+				}
+			};
+			
+			var getSourceChar = function(c) {
+				var charsWide = (WIDTH  / CWIDTH);
+				
+				var bytesPerRastRow = CWIDTH 	* charsWide
+				var bytesPerCharRow = CHEIGHT * bytesPerRastRow;
+				
+				var startByte = 0;
+				while(c > charsWide) {
+					startByte += bytesPerCharRow;
+					c -= charsWide;
+				}
+				
+				while(c) {
+					startByte += CWIDTH;
+					c--;
+				}
+				
+				var charBuf = [];
+				for(var y=0;y<CHEIGHT;y++) {
+					for(var x=0;x<CWIDTH;x++) {
+						charBuf.push(srcdata[startByte+x]);
+					}
+					startByte += bytesPerRastRow;
+				}
+				
+				return charBuf;
+			};
+			
+			var findMatch = function(buf) {
+				var smallestDiff = (CWIDTH * CHEIGHT) + 1; //Maximum Difference
+				
+				var bestMatch = undefined;
+				
+				for(var i=0;i<CHARACTERS;i++) {
+					var aDiff = diff(buf,chardata[i]);
+					
+					if(aDiff == 0)
+						return i; //Perfect Match.
+					
+					if(aDiff < smallestDiff) {
+						smallestDiff = aDiff;
+						bestMatch = i;
+					}
+				}
+				
+				return bestMatch;
+			};
+			
+			var diff = function(bufa,bufb) {
+				var difference = 0;
+
+				//console.log(bufa,bufb);
+
+				for(var i=0;i<bufa.length;i++) {
+					if(bufa[i] != bufb[i])
+						difference++;
+				}
+				
+				return difference;
+			};
+		</script>
+
+		<img src='s_starbucks.jpg' id='source' style='width:320px;height:200px;'>
+		<img src='' id='character' style='display:none;'>
+		<canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
+
+		<br>
+
+		<div id='charsetContainer'></div>
+
+		<input type='text' value='petsciiart.pet' id='filename'>
+		<input type='button' value='save' id='savebut'>
+
+	</body>
+</html>
