@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="utf-8" />
 		<title>
-			C64 PETSCII Art Generator
+			C64 PETSCII Art Generator v2
 		</title>
 		<style type='text/css'>
 		
@@ -11,17 +11,28 @@
 	</head>
 	<body onload='init();'>
 		<script type='text/javascript'>
-			var CHARSET    = "upperlower"
+            // v1: Originally written by Gregory Nacu.
+            //     Add black/white support, dithering, and color matching algorithm.
+            //     Visit http://c64os.com and https://c64os.com/post/petsciiartrenderer
+            //     for more information.
+            //
+            // v2: Enhancement by Warren Wilbur.
+            //     Add grayscale working image support (when dithering is disabled) and
+            //     render using addition of absolute color differences (better results
+            //     for photographic source images).
+            //
+    		var CHARSET    = "upperlower"
 			var CHARACTERS = 256;
-			var WIDTH 		 = 320;
-			var HEIGHT 		 = 200;
+			var WIDTH      = 320;
+			var HEIGHT 	   = 200;
 			var CWIDTH     = 8;
 			var CHEIGHT    = 8;
-			
-			var canvas;
-			var source;
-			var context;
-			var character;
+
+			var C64_COLOR_BLACK = 0;
+			var C64_COLOR_WHITE = 1;
+
+			var C64_COLOR_BLACK_RGB = 0;
+			var C64_COLOR_WHITE_RGB = 255;
 			
 			var chardata = [];
 			var srcdata  = [];
@@ -29,61 +40,161 @@
 			
 			var characterContainer;
 			var characterCanvas = [];
-			
+
 			var saveByteArray = (function () {
 				var a = document.createElement("a");
 				document.body.appendChild(a);
 				a.style = "display: none";
 				
-				return function (data, name) {
-					var blob = new Blob([data], {type: "application/octet-stream"});
-					var url  = window.URL.createObjectURL(blob);
-					
-					a.href = url;
-					a.download = name;
-					a.click();
-					
-					window.URL.revokeObjectURL(url);
-				};
+                return function (data, name, compatibleOutputEnabled) {
+                    var blob = new Blob([data], {type: "application/octet-stream"});
+                    if (compatibleOutputEnabled) {
+                        var bufStr = "unsigned char frame0000[]={// border,bg,chars,colors\n" +
+                                     "0,0,\n";
+                        for (var i=0;i<data.length;i++) {
+                            var petsciiCodeStr = data[i].toString();
+                            while (petsciiCodeStr.length < 3) {
+                                petsciiCodeStr = "0" + petsciiCodeStr;
+                            }
+
+                            bufStr = bufStr + petsciiCodeStr + ",";
+                            if ((i+1) % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "\n";
+                            }
+                        }
+                        for (var i=0;i<data.length;i++) {
+                            var color = 255;
+                            switch (color) {
+                                case C64_COLOR_BLACK_RGB:
+                                    color = C64_COLOR_BLACK;
+                                    break;
+                                case C64_COLOR_WHITE_RGB:
+                                    color = C64_COLOR_WHITE;
+                                    break;
+                            };
+                            
+                            var colorStr = color.toString();
+                            while (colorStr.length < 3) {
+                                colorStr = "0" + colorStr;
+                            }
+                            
+                            bufStr = bufStr + colorStr + ",";
+                            if ((i+1) % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "\n";
+                            }
+                        }
+                        bufStr = bufStr + "};\n";
+                        bufStr = bufStr + "// META: 40 25 C64 upper";
+                        blob = new Blob([bufStr], {type: "text/plain"});
+                    }
+                    var url  = window.URL.createObjectURL(blob);
+                    
+                    a.href = url;
+                    a.download = name;
+                    a.click();
+                    
+                    window.URL.revokeObjectURL(url);
+                };
 			}());
 			
 			function init() {
-				document.getElementById('savebut').onclick = function() {
-					saveByteArray(petscii,document.getElementById('filename').value);
+				document.getElementById('loadImageFile_button').onclick = function() {
+					loadImageFile(document.getElementById('loadImageFilename').value);
 				};
-			
-				source = document.getElementById('source');
-				canvas = document.getElementById('canvas');
+
+				document.getElementById('renderGreyscale_button').onclick = function() {
+					renderGreyscaleImage();
+				};
+
+				document.getElementById('renderPetscii_button').onclick = function() {
+					renderPetsciiImage();
+				};
+
+				document.getElementById('savePetsciiFile_button').onclick = function() {
+                    var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
+                    var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+					saveByteArray(petscii, document.getElementById('savePetsciiFilename').value, compatibleOutputEnabled);
+				};
+
+				document.getElementById('compatibleOutput_switch').onclick = function() {
+                    var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
+                    var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+				    var savePetscii_element = document.getElementById('savePetsciiFilename');
+                    var savePetsciiFilename = savePetscii_element.value;
+                    if (savePetsciiFilename.length == 0)
+                    {
+                        savePetsciiFilename = document.getElementById('loadImageFilename').value;
+                    }
+                    if (savePetsciiFilename.length == 0)
+                    {
+                        savePetsciiFilename = "petsciiart";
+                    }
+                    if (compatibleOutputEnabled) {
+                        savePetscii_element.value = savePetsciiFilename.split('.')[0] + ".c"
+                    } else {
+                        savePetscii_element.value = savePetsciiFilename.split('.')[0] + ".pet"
+                    }
+				};
+			};
+
+            function loadImageFile(inputFilePath) {
+                var inputFilename = inputFilePath.split('\\').pop().split('/').pop();
+                var sourceImage = document.getElementById('sourceImage');
+                sourceImage.title = inputFilename;
+                sourceImage.src = inputFilename;
+
+                var savePetscii_element = document.getElementById('savePetsciiFilename');
+                savePetscii_element.value = inputFilename.split('.')[0] + ".pet"
+            }
+
+            function renderGreyscaleImage() {
+			    var sourceImage = document.getElementById('sourceImage');
+
+				var greyscaleCanvas = document.getElementById('greyscaleCanvas');
+				var greyscaleCanvasContext = greyscaleCanvas.getContext("2d", { willReadFrequently: true });
+				greyscaleCanvasContext.drawImage(sourceImage,0,0,WIDTH,HEIGHT);
+
+			    var greyscaleDither_switch = document.getElementById('greyscaleDither_switch');
+                var skipDithering = greyscaleDither_switch.checked ? false:true;
+				srcdata = greyscale(greyscaleCanvasContext,WIDTH,HEIGHT,skipDithering);
+            }
+            	
+            function renderPetsciiImage() {
+				var greyscaleCanvas = document.getElementById('greyscaleCanvas');
+				var canvas = document.getElementById('canvas');
+				var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
 				
-				context = canvas.getContext("2d");
-				context.drawImage(source,0,0,WIDTH,HEIGHT);
-				
-				srcdata = greyscale(context,WIDTH,HEIGHT);
-				
-				character 				 = document.getElementById("character");
+				var character = document.getElementById("character");
 				characterContainer = document.getElementById("charsetContainer");
-	
+
+                //clean up character elements from last run (if any)
+                while (characterContainer.hasChildNodes()) {
+                    characterContainer.removeChild(characterContainer.firstChild);
+                }
+			    characterCanvas = [];
+
 				for(var i=0;i<CHARACTERS;i++) {
 					var charCanvas = document.createElement("canvas");
 					charCanvas.setAttribute("width", CWIDTH);
 					charCanvas.setAttribute("height",CHEIGHT);
 					
-					charCanvas.style.width  		 = CWIDTH+ "px";
-					charCanvas.style.height 		 = CHEIGHT+"px";
+					charCanvas.style.width  	 = CWIDTH  + "px";
+					charCanvas.style.height 	 = CHEIGHT + "px";
 					charCanvas.style.marginRight = "5px";
 					
 					characterContainer.appendChild(charCanvas);
 					characterCanvas.push(charCanvas);
 					
-					if((i + 1) % 32 == 0)
+                    if((i + 1) % 32 == 0) {
 						characterContainer.appendChild(document.createElement("br"));
+                    }
 				}
 	
 				var i = 0;
 				
 				character.onload = function() {
 					var charCanvas  = characterCanvas[i];
-					var charContext = charCanvas.getContext("2d");
+					var charContext = charCanvas.getContext("2d", { willReadFrequently: true });
 					
 					charContext.drawImage(character,0,0);
 					
@@ -103,7 +214,7 @@
 
 				var loadCharacter = function() {
 					if(i >= CHARACTERS) {
-						render();
+						render(canvasContext);
 						return;
 					}
 					character.src = CHARSET+"/"+i+".gif";
@@ -112,7 +223,7 @@
 				loadCharacter();
 			}
 			
-			var greyscale = function(context,w,h,skip) {
+			var greyscale = function(context,w,h,skipDithering) {
 				var imgd = context.getImageData(0, 0, w,h);
 				var pix  = imgd.data;
 				
@@ -126,8 +237,8 @@
 				
 				for(var i=0,il=pix.length;i<il;i+=4) {
 					var grayscale = pix[i  ] * .3  + 
-													pix[i+1] * .59 + 
-													pix[i+2] * .11;
+									pix[i+1] * .59 + 
+						    		pix[i+2] * .11;
 	
 					//Weight the alpha channel. --Thanks to Chris Roy!
 					var aDiff = 256 - pix[i+3];
@@ -138,79 +249,86 @@
 					ebBuf.push(grayscale);
 				}
 
-				if(!skip) {
+				if(!skipDithering) {
 					dither(ebBuf,w,h);
-				
-					for(var i=0;i<ebBuf.length;i++) {
-						d[0]   = ebBuf[i];
-						d[1]   = ebBuf[i];
-						d[2]   = ebBuf[i];
-						d[3]   = 255;
-						context.putImageData(id,x,y);				
-		
-						x++;
-						if(x >= WIDTH) {
-							x = 0
-							y++;
-						}
-					}
 				}
 				
+                for(var i=0;i<ebBuf.length;i++) {
+                    d[0]   = ebBuf[i];
+                    d[1]   = ebBuf[i];
+                    d[2]   = ebBuf[i];
+                    d[3]   = 255;
+                    context.putImageData(id,x,y);				
+    
+                    x++;
+                    if(x >= WIDTH) {
+                        x = 0
+                        y++;
+                    }
+                }
+				
 				return ebBuf;
-			};
+            }
 
+
+            //dithering to a two-color image (black/white)
 			var dither = function(sb, w, h) {   // source buffer, width, height
-				for(var i=0; i<h; i++) {
-					for(var j=0; j<w; j++) {
-						var ci = i*w+j;               // current buffer index
+				for(var y=0; y<h; y++) {
+					for(var x=0; x<w; x++) {
+						var ci = y*w+x;               // current buffer index
 						var cc = sb[ci];              // current color
 						var rc = (cc<128?0:255);      // real (rounded) color
 						var err = cc-rc;              // error amount
 
 						sb[ci] = rc;                  // saving real color
 
-						if(j+1 < w) 
+                        if(x+1 < w) {
 							sb[ci  +1] += (err*7)>>4;  // if right neighbour exists
+                        }
 	
-						if(i+1 == h) 
-							continue;   // if we are in the last line
-	
-						if(j > 0) 
-							sb[ci+w-1] += (err*3)>>4;  // bottom left neighbour
-	
-						sb[ci+w] += (err*5)>>4;  // bottom neighbour
+						if(y < h) 
+                        {
+                            if(x > 0) {
+                                sb[ci+w-1] += (err*3)>>4;  // bottom left neighbour
+                            }
 
-						if(j+1<w) 
-							sb[ci+w+1] += (err*1)>>4;  // bottom right neighbour
-					}
+                            sb[ci+w] += (err*5)>>4;  // bottom neighbour
+
+                            if(x+1<w)  {
+                                sb[ci+w+1] += (err*1)>>4;  // bottom right neighbour
+                            }
+                        }
+                    }
 				}
 			};			
 			
-			var render = function() {
+			var render = function(canvasContext) {
+			    var greyscaleDither_switch = document.getElementById('greyscaleDither_switch');
+                var skipDithering = greyscaleDither_switch.checked ? false:true;
 				var charsWide = WIDTH  / CWIDTH;
 				var charsHigh = HEIGHT / CHEIGHT;
-			
+			    
 				var charCount = charsWide * charsHigh;
 				
 				var c = 0;
 				for(var y=0;y<charsHigh;y++) {
 					for(var x=0;x<charsWide;x++) {
 						var charBuf  = getSourceChar(c);
-						var petValue = findMatch(charBuf);
+						var petValue = findMatch(charBuf,skipDithering);
 					
 						petscii[c] = petValue;
 						
-						context.drawImage(characterCanvas[petValue],x*CWIDTH,y*CHEIGHT);
+						canvasContext.drawImage(characterCanvas[petValue],x*CWIDTH,y*CHEIGHT);
 						c++;
 					}
 				}
 			};
 			
 			var getSourceChar = function(c) {
-				var charsWide = (WIDTH  / CWIDTH);
+				var charsWide = (WIDTH  / CWIDTH); // 320 / 8 = 40
 				
-				var bytesPerRastRow = CWIDTH 	* charsWide
-				var bytesPerCharRow = CHEIGHT * bytesPerRastRow;
+				var bytesPerRastRow = CWIDTH  * charsWide; // 8 * 40 = 320
+				var bytesPerCharRow = CHEIGHT * bytesPerRastRow; // 8 * 320 = 2560
 				
 				var startByte = 0;
 				while(c > charsWide) {
@@ -234,19 +352,24 @@
 				return charBuf;
 			};
 			
-			var findMatch = function(buf) {
-				var smallestDiff = (CWIDTH * CHEIGHT) + 1; //Maximum Difference
+			var findMatch = function(buf,skipDithering) {
+				var maximumDifference = (CWIDTH * CHEIGHT) + 1;
+                if (skipDithering) {
+				    maximumDifference = (CWIDTH * CHEIGHT) * 255 + 1;
+                }
+                var smallestDifference = maximumDifference;
 				
 				var bestMatch = undefined;
 				
 				for(var i=0;i<CHARACTERS;i++) {
-					var aDiff = diff(buf,chardata[i]);
+					var currentDifference = diff(buf,chardata[i],skipDithering);
 					
-					if(aDiff == 0)
+                    if(currentDifference == 0) {
 						return i; //Perfect Match.
+                    }
 					
-					if(aDiff < smallestDiff) {
-						smallestDiff = aDiff;
+					if(currentDifference < smallestDifference) {
+						smallestDifference = currentDifference;
 						bestMatch = i;
 					}
 				}
@@ -254,30 +377,55 @@
 				return bestMatch;
 			};
 			
-			var diff = function(bufa,bufb) {
+			var diff = function(bufa,bufb,skipDithering) {
 				var difference = 0;
 
-				//console.log(bufa,bufb);
-
 				for(var i=0;i<bufa.length;i++) {
-					if(bufa[i] != bufb[i])
-						difference++;
+                    if(bufa[i] != bufb[i]) {
+                        if (skipDithering) {
+						    difference += Math.abs(bufa[i] - bufb[i]);
+                        } else {
+                            difference++;
+                        }
+                    }
 				}
-				
 				return difference;
 			};
 		</script>
 
-		<img src='Sample Images/s_classic.png' id='source' style='width:320px;height:200px;'>
-		<img src='' id='character' style='display:none;'>
-		<canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
+        <h2><center>C64 PETSCII Art Generator v2</center></h2>
+        <center>Originally written by Gregory Nacu, <a href="https://c64os.com">C64OS.com</a></center></b>
+        <center>Enhancements by Warren Wilbur</center>
 
+        <h3>1. Select any image file in the same directory as petscii_converter.html</h3>
+        <i>Loading source images and character set images requires support for cross origin file loading. To do this start chrome on the command line with the --allow-file-access-from-files option. e.g. "D:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html</i><br><br>
+        <input type="file" value='Sample Images/s_classic.png' id="loadImageFilename" />
+		<input type='button' value='Load Image File' id='loadImageFile_button'>
 		<br>
 
+        <h3>Source Image</h3>
+		<img src='Sample Images/s_classic.png' id='sourceImage' style='width:320px;height:200px;'>
+        <h3>2. After selecting source image, click to render Greyscale image</h3>
+        <input type="checkbox" id="greyscaleDither_switch" checked class="checkbox" />
+        <label for="greyscaleDither_switch">Enable dithering to a two-color image (black/white) when rendering greyscale image</label><br><br>
+		<input type='button' value='Render Greyscale' id='renderGreyscale_button'>
+
+        <h3>Source Image (greyscale)</h3>
+		<canvas width=320 height=200 style='width:320px;height:200px;' id='greyscaleCanvas'></canvas>
+        <h3>3. After rendering greyscale image, click to render PETSCII image</h3>
+		<input type='button' value='Render PETSCII' id='renderPetscii_button'>
+
+        <h3>Character Set</h3>
 		<div id='charsetContainer'></div>
+		<img src='' id='character' style='display:none;'>
 
-		<input type='text' value='petsciiart.pet' id='filename'>
-		<input type='button' value='save' id='savebut'>
+        <h3>Canvas Image</h3>
+		<canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
 
+        <h3>4. After rendering Canvas image, enter filename and click to save PETSCII mosaic to file</h3>
+        <input type="checkbox" id="compatibleOutput_switch" class="checkbox" />
+        <label for="compatibleOutput_switch">Enable PETSCII Compositor compatible .C output file</label><br><br>
+		<input type='text' value='petsciiart.pet' id='savePetsciiFilename'>
+		<input type='button' value='Save PETSCII File' id='savePetsciiFile_button'>
 	</body>
 </html>
