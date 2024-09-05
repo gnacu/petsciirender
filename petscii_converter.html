@@ -3,14 +3,14 @@
     <head>
         <meta charset="utf-8" />
         <title>
-            C64 PETSCII Art Generator v4
+            C64 PETSCII Art Generator v5
         </title>
         <style type='text/css'>
         
         </style>
     </head>
     <body onload='Init();'>
-		<script type='text/javascript'>
+        <script type='text/javascript'>
             // v1: Originally written by Gregory Nacu.
             //     Add black/white support, dithering, and color matching algorithm.
             //     Visit http://c64os.com and https://c64os.com/post/petsciiartrenderer
@@ -30,10 +30,19 @@
             // v4: Enhancement by Warren Wilbur.
             //     Add support for all sixteen C64 colors. Add support for changing
             //     background color.
-            var CHARSET    = "upperlower"
+            //
+            // v5: Enhancement by Warren Wilbur.
+            //     Add color negative support. Add shortcut buttons for black/white,
+            //     grayscale, blues, greens, browns, and reds color sets. Add support
+            //     for custom character sets. Add support for C64 extended (background)
+            //     color mode (implement multiple background color register values for
+            //     VIC-II and color ram, to accurately represent the color limitations
+            //     of the VIC-II standard and extended modes). Add C64 US upper-case
+            //     character set. Add C64OS output format.
+            //
             var CHARACTERS = 256;
             var WIDTH      = 320;
-            var HEIGHT        = 200;
+            var HEIGHT     = 200;
             var CWIDTH     = 8;
             var CHEIGHT    = 8;
 
@@ -72,7 +81,8 @@
             var C64_RGB_COLOR_LIGHTBLUE =  [  0,136,255];
             var C64_RGB_COLOR_LIGHTGREY =  [187,187,187];
 
-            var C64_SELECTED_RGB_COLORS = [];
+            var C64_SELECTED_FOREGROUND_RGB_COLORS = [];
+            var C64_SELECTED_BACKGROUND_RGB_COLORS = [];
  
             var contrast = 0;
             var brightness = 0;
@@ -89,7 +99,7 @@
             }
 
             // find specified RGB color in C64_SELECTED_RGB_COLORS array and return it's index, return undefined if not found.
-            function FindIndexOfSelectedColor(rgbColor) {
+            function FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS) {
                 var colorIndex = -1;
                 for (var i=0; i<C64_SELECTED_RGB_COLORS.length; i++) {
                     if (MatchRgbColors(C64_SELECTED_RGB_COLORS[i], rgbColor)) {
@@ -141,7 +151,6 @@
 
             // Find matching C64 color code and return matching RGB color ([r, g, b]), undefined if no match
             function GetRgbColor(c64ColorCode) {
-                console.log(c64ColorCode);
                 var rgbColor = undefined;
                 switch (c64ColorCode) {
                     case C64_COLOR_CODE_BLACK:
@@ -196,15 +205,16 @@
                 return rgbColor;
             }
 
-
             var chardata = [];
             var srcdata  = [];
-            var petsciiCharacterCodes = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
-            var c64CharacterColors =    new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+            var petsciiCharacterCodes        = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+            var c64CharacterForegroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+            var c64CharacterBackgroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+            var c64CustomCharacterSetBytes   = new Uint8Array(CHARACTERS*8);
             
             var characterContainer;
             var characterCanvas = [];
-            
+
             // format number between 0-255 into a three column string (padding with leading zeros as necessary, i.e. 1 -> 001)
             function FormatNumberStr(colorCode) {
                 var colorCodeStr = colorCode.toString();
@@ -214,38 +224,220 @@
                 return colorCodeStr;
             }
 
+            function GetUint8Array(inputArray) {
+                var outputArray = new Uint8Array(inputArray.length);
+                for (var i=0; i<inputArray.length; i++) {
+                    outputArray[i] = inputArray[i];
+                }
+                return outputArray;
+            }
+
+            // convert A-Z and 0-9 into array of hex PETSCII character codes
+            function ConvertAsciiStrToPetsciiBytes(asciiStr) {
+                var petsciiBytes = [];
+                var upperCaseAsciiStr = asciiStr.toUpperCase();
+                for (var i=0; i<upperCaseAsciiStr.length; i++) {
+                    var asciiCode = upperCaseAsciiStr.charCodeAt(i);
+                    var petsciiCode = undefined;
+                    if ( (asciiCode >= 65) && (asciiCode <= 90) ) {
+                        petsciiCode = asciiCode - 65 + 1; // ASCII 'A' = 65, PETSCII 'A' (or 'a') = 01
+                    } else if ( (asciiCode >= 48) && (asciiCode <= 57) ) {
+                        // ASCII '0' = 48, PETSCII '0' = 48. Do nothing for 0-9
+                        petsciiCode = asciiCode;
+                    } else {
+                        console.log("no match - replace with ' '. char:" + upperCaseAsciiStr.charAt(i) + " ascii:" + upperCaseAsciiStr.charCodeAt(i));
+                        petsciiCode = 32; // replace anything not in A-Z0-9 with blank
+                    }
+                    petsciiBytes.push(petsciiCode);
+                }
+                return petsciiBytes;
+            }
+
+            function PadBytes(inputBytes, maximumLength) {
+                while (inputBytes.length < maximumLength) {
+                    inputBytes.push(0);
+                }
+                return inputBytes;
+            }
+
+            // convert to PETSCII, truncate to maximumLength, terminate with 0x00, pad with 0x00;
+            function PrepareTextField(asciiStr, maximumLength)
+            {
+                var petsciiBytes = ConvertAsciiStrToPetsciiBytes(asciiStr);
+                petsciiBytes = PadBytes(petsciiBytes, maximumLength);
+                if (petsciiBytes.length > maximumLength) {
+                    petsciiBytes = petsciiBytes.slice(0, maximumLength-1);
+                }
+                petsciiBytes[maximumLength-1] = 0x00;
+                return petsciiBytes;
+            }
+
 			var SaveByteArray = (function () {
                 var a = document.createElement("a");
                 document.body.appendChild(a);
                 a.style = "display: none";
                 
-                return function (characterCodes, characterColors, inputFileName, outputFileName, compatibleOutputEnabled) {
+                return function (characterCodes, characterForegroundColors, characterBackgroundColors, inputFileName, outputFileName, compatibleOutputEnabled, c64OsOutputEnabled) {
+                    // original output format by default
                     var blob = new Blob([characterCodes], {type: "application/octet-stream"});
                     if (compatibleOutputEnabled) {
-                         var backgroundColor_number = document.getElementById('backgroundColor_number');
-                         var backgroundColorCode = backgroundColor_number.value;
+                        var bufStr =      "// generated by petscii_converter.html\n" +
+                                          "//    imagefile: " + inputFileName + "\n" +
+                                          "//     contrast: " + contrast + "\n" +
+                                          "//   brightness: " + brightness + "\n";
 
-                        var bufStr = "// generated by petscii_converter.html\n" +
-                                     "//    imagefile: " + inputFileName + "\n" +
-                                     "//     contrast: " + contrast + "\n" +
-                                     "//   brightness: " + brightness + "\n" +
-                                     "unsigned char frame0000[]={// 1 byte border color, 1 byte background color, 1000 bytes PETSCII character codes, 1000 bytes character colors\n" +
-                                     FormatNumberStr(backgroundColorCode) + "," + FormatNumberStr(backgroundColorCode) + ",\n";
+                        var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                        var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked ? true:false;
+                        if (vic2ExtendedMode_enabled) {
+                            bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color1, 1 byte background color2, 1 byte background color3, " +
+                                              "1 byte background color4, 1000 bytes PETSCII character codes (bits 7-8 background color), 1000 bytes character colors\n" +
+                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," +
+                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[1]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[2]) + "," +
+                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[3]) + ",\n";
+                        } else {
+                            bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color, 1000 bytes PETSCII character codes, 1000 bytes character colors\n" +
+                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + ",\n";
+                        }
+
                         for (var i=0;i<characterCodes.length;i++) {
-                            bufStr = bufStr + FormatNumberStr(characterCodes[i]) + ",";
+                            characterCode = characterCodes[i];
+                            if (vic2ExtendedMode_enabled) {
+                                backgroundColorIndex = FindIndexOfSelectedColor(characterBackgroundColors[i], C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                switch (backgroundColorIndex) {
+                                    case 0:
+                                        characterCode = (characterCode & 0b00111111) | 0b00000000;
+                                        break;
+                                    case 1:
+                                        characterCode = (characterCode & 0b00111111) | 0b01000000;
+                                        break;
+                                    case 2:
+                                        characterCode = (characterCode & 0b00111111) | 0b10000000;
+                                        break;
+                                    case 3:
+                                        characterCode = (characterCode & 0b00111111) | 0b11000000;
+                                        break;
+                                }
+                            }
+                            bufStr = bufStr + FormatNumberStr(characterCode) + ",";
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "\n";
                             }
                         }
-                        for (var i=0; i<characterColors.length; i++) {
-                            bufStr = bufStr + FormatNumberStr(characterColors[i]) + ",";
+
+                        for (var i=0; i<characterForegroundColors.length; i++) {
+                            bufStr = bufStr + FormatNumberStr(characterForegroundColors[i]) + ",";
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "\n";
                             }
                         }
+
                         bufStr = bufStr + "};\n";
                         bufStr = bufStr + "// META: 40 25 C64 upper";
                         blob = new Blob([bufStr], {type: "text/plain"});
+                    } else if (c64OsOutputEnabled) {
+                        var characterSetUpper256_switch = document.getElementById('characterSetUpper256_switch');
+                        var characterSetUpper256_switch_enabled = characterSetUpper256_switch.checked;
+                        var characterSetUpperLower256_switch = document.getElementById('characterSetUpperLower256_switch');
+                        var characterSetUpperLower256_switch_enabled = characterSetUpperLower256_switch.checked;
+                        var characterSetCustom_switch = document.getElementById('characterSetCustom_switch');
+                        var characterSetCustom_switch_enabled = characterSetCustom_switch.checked;
+
+                        var c64OsOutputTitle_text = document.getElementById('c64OsOutputTitle_text');
+                        var title_value = c64OsOutputTitle_text.value;
+                        if (title_value == undefined) {
+                            title_value = "";
+                        }
+                        var c64OsOutputArtist_text = document.getElementById('c64OsOutputArtist_text');
+                        var artist_value = c64OsOutputArtist_text.value;
+                        if (artist_value == undefined) {
+                            artist_value = "";
+                        }
+                        var c64OsOutputCopyright_text = document.getElementById('c64OsOutputCopyright_text');
+                        var copyright_value = c64OsOutputCopyright_text.value;
+                        if (copyright_value == undefined) {
+                            copyright_value = "";
+                        }
+
+                        var saveFields = [];
+                        if (characterSetUpper256_switch_enabled) {
+                            //refer to https://c64os.com/post/imageformats
+                            //
+                            // Version 0 implies the Uppercase/Graphics character set (from the standard C64 Char ROM.)
+                            //
+                            // The Version 0 Format:
+                            //
+                            // MAGIC         3 ("PET", $D0 $C5 $D4)
+                            // VERSION       1 ("0", $30)
+                            // SOURCE       17 (Title,     String in PETSCII, $00 padded and terminated)
+                            // AUTHOR       17 (Artist,    String in PETSCII, $00 padded and terminated)
+                            // RELEASE      17 (Copyright, String in PETSCII, $00 padded and terminated)
+                            // SCREEN     1000 (Screencodes for screen matrix memory, not PETSCII codes.)
+                            // COLOR      1000 (VIC-II colorcodes for color memory, not PETSCII codes.)
+                            // BORDER        1 (Border color, value stored to VIC+$20)
+                            // BACKGRND      1 (Background color, value stored to VIC+$21)
+
+                            saveFields.push(GetUint8Array([0xD0, 0xC5, 0xD4, 0x30]));
+                            saveFields.push(GetUint8Array(PrepareTextField(title_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
+                            saveFields.push(characterCodes);
+                            saveFields.push(characterForegroundColors);
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                        } else if (characterSetUpperLower256_switch_enabled) {
+                            //refer to https://c64os.com/post/imageformats
+                            //
+                            // Version 1 is identical to Version 0, but implies the Lowercase/Uppercase character set.
+                            //
+                            // The Version 1 Format:
+                            //
+                            // MAGIC         3 ("PET", $D0 $C5 $D4)
+                            // VERSION       1 ("1", $31)
+                            // SOURCE       17 (Title,     String in PETSCII, $00 padded and terminated)
+                            // AUTHOR       17 (Artist,    String in PETSCII, $00 padded and terminated)
+                            // RELEASE      17 (Copyright, String in PETSCII, $00 padded and terminated)
+                            // SCREEN     1000 (Screencodes for screen matrix memory, not PETSCII codes.)
+                            // COLOR      1000 (VIC-II colorcodes for color memory, not PETSCII codes.)
+                            // BORDER        1 (Border color, value stored to VIC+$20)
+                            // BACKGRND      1 (Background color, value stored to VIC+$21)
+
+                            saveFields.push(GetUint8Array([0xD0, 0xC5, 0xD4, 0x31]));
+                            saveFields.push(GetUint8Array(PrepareTextField(title_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
+                            saveFields.push(characterCodes);
+                            saveFields.push(characterForegroundColors);
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                        } else if (characterSetCustom_switch_enabled) {
+                            //refer to https://c64os.com/post/imageformats
+                            //
+                            // version 2 adds the 2KB character set at the end. The character set is in the same format as a 2KB charset in the ROM. 
+                            //
+                            // The Version 2 Format:
+                            //
+                            // MAGIC         3 ("PET", $D0 $C5 $D4)
+                            // VERSION       1 ("2", $32)
+                            // SOURCE       17 (Title,     String in PETSCII, $00 padded and terminated)
+                            // AUTHOR       17 (Artist,    String in PETSCII, $00 padded and terminated)
+                            // RELEASE      17 (Copyright, String in PETSCII, $00 padded and terminated)
+                            // SCREEN     1000 (Screencodes for screen matrix memory, not PETSCII codes.)
+                            // COLOR      1000 (VIC-II colorcodes for color memory, not PETSCII codes.)
+                            // BORDER        1 (Border color, value stored to VIC+$20)
+                            // BACKGRND      1 (Background color, value stored to VIC+$21)
+                            // CHARSET    2048 (2KB character set)
+
+                            saveFields.push(GetUint8Array([0xD0, 0xC5, 0xD4, 0x32]));
+                            saveFields.push(GetUint8Array(PrepareTextField(title_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
+                            saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
+                            saveFields.push(characterCodes);
+                            saveFields.push(characterForegroundColors);
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(c64CustomCharacterSetBytes);
+                        }
+                        blob = new Blob(saveFields, {type: "application/octet-stream"});
                     }
                     var url  = window.URL.createObjectURL(blob);
                     
@@ -258,16 +450,28 @@
 			}());
             
             // read the value of the color switch and update the selected colors array accordingly
-            function ManageSelectedColors(switchId, colorRgb) {
+            function ManageSelectedColorsSwitch(switchId, rgbColor, C64_SELECTED_RGB_COLORS) {
                 var color_switch = document.getElementById(switchId);
                 var color_enabled = color_switch.checked ? true:false;
-                var color_index = FindIndexOfSelectedColor(colorRgb);
+                var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
                 if (color_enabled)
                 {
                     if (color_index == -1)
                     {
-                        C64_SELECTED_RGB_COLORS.push(colorRgb);
+                        C64_SELECTED_RGB_COLORS.push(rgbColor);
                     }
+                }
+            }
+
+            // read the value of the color number and update the selected colors array accordingly
+            function ManageSelectedColorsNumber(numberId, C64_SELECTED_RGB_COLORS) {
+                var color_number = document.getElementById(numberId);
+                var colorCode = parseInt(color_number.value);
+                var rgbColor = GetRgbColor(colorCode);
+                var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
+                if (color_index == -1)
+                {
+                    C64_SELECTED_RGB_COLORS.push(rgbColor);
                 }
             }
 
@@ -287,11 +491,15 @@
             {
                 var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
                 var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+
+                var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
+                var c64OsOutputEnabled = c64OsOutput_switch.checked ? true:false;
+
                 var savePetscii_element = document.getElementById('savePetsciiFileName');
                 var savePetsciiFileName = savePetscii_element.value;
                 if (savePetsciiFileName.length == 0)
                 {
-                    savePetsciiFileName = document.getElementById('loadImageFileName').value;
+                    savePetsciiFileName = document.getElementById('loadImageFileName_file').value;
                 }
                 if (savePetsciiFileName.length == 0)
                 {
@@ -299,6 +507,8 @@
                 }
                 if (compatibleOutputEnabled) {
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".c"
+                } else if (c64OsOutputEnabled) {
+                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".bin"
                 } else {
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".pet"
                 }
@@ -306,7 +516,7 @@
 
             function Init() {
                 document.getElementById('loadImageFile_button').onclick = function() {
-                    LoadImageFile(document.getElementById('loadImageFileName').value);
+                    LoadImageFile(document.getElementById('loadImageFileName_file').value);
                     UpdateOutputFileName();
                 };
 
@@ -396,8 +606,7 @@
                 function SetupMinimizeColorDifferencesAlgorithm() {
                     var minimizeColorDifferencesAlgorithm_switch = document.getElementById('minimizeColorDifferencesAlgorithm_switch');
                     var minimizeColorDifferencesAlgorithm = minimizeColorDifferencesAlgorithm_switch.checked ? true:false;
-                    if (minimizeColorDifferencesAlgorithm)
-                    {
+                    if (minimizeColorDifferencesAlgorithm) {
                         ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
                     } else {
                         ManageSwitchSelected('matchExactColorAlgorithm_switch', true);
@@ -427,24 +636,391 @@
                     SetupBlackAndWhiteDithering();
                 }
 
+                document.getElementById('imageContrast_range').onclick = function() {
+                    var imageContrast_range = document.getElementById('imageContrast_range');
+                    var imageContrast_number = document.getElementById('imageContrast_number');
+                    imageContrast_number.value = imageContrast_range.value;
+                }
+
+                document.getElementById('imageContrast_number').onchange = function() {
+                    var imageContrast_number = document.getElementById('imageContrast_number');
+                    if (imageContrast_number.value > 200) {
+                        imageContrast_number.value = 200;
+                    }
+                    if (imageContrast_number.value < -100) {
+                        imageContrast_number.value = -100;
+                    }
+                    var imageContrast_range = document.getElementById('imageContrast_range');
+                    imageContrast_range.value = imageContrast_number.value;
+                }
+
+                document.getElementById('imageBrightness_range').onclick = function() {
+                    var imageBrightness_range = document.getElementById('imageBrightness_range');
+                    var imageBrightness_number = document.getElementById('imageBrightness_number');
+                    imageBrightness_number.value = imageBrightness_range.value;
+                }
+
+                document.getElementById('imageBrightness_number').onchange = function() {
+                    var imageBrightness_number = document.getElementById('imageBrightness_number');
+                    if (imageBrightness_number.value > 400) {
+                        imageBrightness_number.value = 400;
+                    }
+                    if (imageBrightness_number.value < -100) {
+                        imageBrightness_number.value = -100;
+                    }
+                    var imageBrightness_range = document.getElementById('imageBrightness_range');
+                    imageBrightness_range.value = imageBrightness_number.value;
+                }
+
+                document.getElementById('vic2StandardMode_switch').onclick = function() {
+                    ManageSwitchSelected('vic2StandardMode_switch', true);
+                    ManageSwitchSelected('vic2ExtendedMode_switch', false);
+                    ManageInputEnabled('backgroundColor2_number', false);
+                    ManageInputEnabled('backgroundColor3_number', false);
+                    ManageInputEnabled('backgroundColor4_number', false);
+
+                    ManageInputEnabled('characterSetExtendedGraphic64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
+                    ManageInputEnabled('characterSetExtendedAlphaNum64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
+
+                    ManageInputEnabled('characterSetUpper256_switch', true);
+                    ManageInputEnabled('characterSetUpperLower256_switch', true);
+                    ManageInputEnabled('c64OsOutput_switch', true);
+                }
+
+                document.getElementById('vic2ExtendedMode_switch').onclick = function() {
+                    ManageSwitchSelected('vic2StandardMode_switch', false);
+                    ManageSwitchSelected('vic2ExtendedMode_switch', true);
+                    ManageInputEnabled('backgroundColor2_number', true);
+                    ManageInputEnabled('backgroundColor3_number', true);
+                    ManageInputEnabled('backgroundColor4_number', true);
+
+                    ManageInputEnabled('characterSetUpper256_switch', false);
+                    ManageSwitchSelected('characterSetUpper256_switch', false);
+                    ManageInputEnabled('characterSetUpperLower256_switch', false);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
+
+                    ManageInputEnabled('characterSetExtendedGraphic64_switch', true);
+                    ManageInputEnabled('characterSetExtendedAlphaNum64_switch', true);
+                    ManageInputEnabled('c64OsOutput_switch', false);
+                    ManageSwitchSelected('c64OsOutput_switch', false);
+                    var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
+                    var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+                    var originalOutput_switch = document.getElementById('originalOutput_switch');
+                    var originalOutputEnabled = originalOutput_switch.checked ? true:false;
+                    if ( (!originalOutputEnabled) && (!compatibleOutputEnabled) )
+                    {
+                        ManageSwitchSelected('compatibleOutput_switch', true);
+                    }
+                }
+
+                document.getElementById('colorPresetBlackAndWhite_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', false);
+                    ManageSwitchSelected('colorWhite_switch', true);
+                    ManageSwitchSelected('colorRed_switch', false);
+                    ManageSwitchSelected('colorCyan_switch', false);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', false);
+                    ManageSwitchSelected('colorBlue_switch', false);
+                    ManageSwitchSelected('colorYellow_switch', false);
+                    ManageSwitchSelected('colorOrange_switch', false);
+                    ManageSwitchSelected('colorBrown_switch', false);
+                    ManageSwitchSelected('colorLightRed_switch', false);
+                    ManageSwitchSelected('colorDarkGrey_switch', false);
+                    ManageSwitchSelected('colorGrey_switch', false);
+                    ManageSwitchSelected('colorLightGreen_switch', false);
+                    ManageSwitchSelected('colorLightBlue_switch', false);
+                    ManageSwitchSelected('colorLightGrey_switch', false);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 0;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        ManageSwitchSelected('colorBlack_switch', true);
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 1;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 0;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 0;
+                    }
+                }
+
+                document.getElementById('colorPresetGreyscale_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', true);
+                    ManageSwitchSelected('colorWhite_switch', true);
+                    ManageSwitchSelected('colorRed_switch', false);
+                    ManageSwitchSelected('colorCyan_switch', false);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', false);
+                    ManageSwitchSelected('colorBlue_switch', false);
+                    ManageSwitchSelected('colorYellow_switch', false);
+                    ManageSwitchSelected('colorOrange_switch', false);
+                    ManageSwitchSelected('colorBrown_switch', false);
+                    ManageSwitchSelected('colorLightRed_switch', false);
+                    ManageSwitchSelected('colorDarkGrey_switch', true);
+                    ManageSwitchSelected('colorGrey_switch', true);
+                    ManageSwitchSelected('colorLightGreen_switch', false);
+                    ManageSwitchSelected('colorLightBlue_switch', false);
+                    ManageSwitchSelected('colorLightGrey_switch', true);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 12;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 11;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 15;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 0;
+                    }
+                }
+
+                document.getElementById('colorPresetBlues_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', false);
+                    ManageSwitchSelected('colorWhite_switch', true);
+                    ManageSwitchSelected('colorRed_switch', false);
+                    ManageSwitchSelected('colorCyan_switch', true);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', false);
+                    ManageSwitchSelected('colorBlue_switch', true);
+                    ManageSwitchSelected('colorYellow_switch', false);
+                    ManageSwitchSelected('colorOrange_switch', false);
+                    ManageSwitchSelected('colorBrown_switch', false);
+                    ManageSwitchSelected('colorLightRed_switch', false);
+                    ManageSwitchSelected('colorDarkGrey_switch', false);
+                    ManageSwitchSelected('colorGrey_switch', false);
+                    ManageSwitchSelected('colorLightGreen_switch', false);
+                    ManageSwitchSelected('colorLightBlue_switch', true);
+                    ManageSwitchSelected('colorLightGrey_switch', false);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 3;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 6;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 14;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 1;
+                    }
+                }
+
+                document.getElementById('colorPresetBrowns_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', true);
+                    ManageSwitchSelected('colorWhite_switch', false);
+                    ManageSwitchSelected('colorRed_switch', false);
+                    ManageSwitchSelected('colorCyan_switch', false);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', false);
+                    ManageSwitchSelected('colorBlue_switch', false);
+                    ManageSwitchSelected('colorYellow_switch', false);
+                    ManageSwitchSelected('colorOrange_switch', true);
+                    ManageSwitchSelected('colorBrown_switch', true);
+                    ManageSwitchSelected('colorLightRed_switch', false);
+                    ManageSwitchSelected('colorDarkGrey_switch', true);
+                    ManageSwitchSelected('colorGrey_switch', false);
+                    ManageSwitchSelected('colorLightGreen_switch', false);
+                    ManageSwitchSelected('colorLightBlue_switch', false);
+                    ManageSwitchSelected('colorLightGrey_switch', false);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 9;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 8;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 11;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 0;
+                    }
+                }
+
+                document.getElementById('colorPresetReds_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', false);
+                    ManageSwitchSelected('colorWhite_switch', false);
+                    ManageSwitchSelected('colorRed_switch', true);
+                    ManageSwitchSelected('colorCyan_switch', false);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', false);
+                    ManageSwitchSelected('colorBlue_switch', false);
+                    ManageSwitchSelected('colorYellow_switch', false);
+                    ManageSwitchSelected('colorOrange_switch', true);
+                    ManageSwitchSelected('colorBrown_switch', true);
+                    ManageSwitchSelected('colorLightRed_switch', true);
+                    ManageSwitchSelected('colorDarkGrey_switch', false);
+                    ManageSwitchSelected('colorGrey_switch', false);
+                    ManageSwitchSelected('colorLightGreen_switch', false);
+                    ManageSwitchSelected('colorLightBlue_switch', false);
+                    ManageSwitchSelected('colorLightGrey_switch', false);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 2;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 9;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 8;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 10;
+                    }
+                }
+
+                document.getElementById('colorPresetGreens_button').onclick = function() {
+                    ManageSwitchSelected('colorBlack_switch', false);
+                    ManageSwitchSelected('colorWhite_switch', false);
+                    ManageSwitchSelected('colorRed_switch', false);
+                    ManageSwitchSelected('colorCyan_switch', true);
+                    ManageSwitchSelected('colorPurple_switch', false);
+                    ManageSwitchSelected('colorGreen_switch', true);
+                    ManageSwitchSelected('colorBlue_switch', false);
+                    ManageSwitchSelected('colorYellow_switch', true);
+                    ManageSwitchSelected('colorOrange_switch', false);
+                    ManageSwitchSelected('colorBrown_switch', false);
+                    ManageSwitchSelected('colorLightRed_switch', false);
+                    ManageSwitchSelected('colorDarkGrey_switch', false);
+                    ManageSwitchSelected('colorGrey_switch', false);
+                    ManageSwitchSelected('colorLightGreen_switch', true);
+                    ManageSwitchSelected('colorLightBlue_switch', false);
+                    ManageSwitchSelected('colorLightGrey_switch', false);
+
+                    var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                    backgroundColor1_number.value = 5;
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        var backgroundColor2_number = document.getElementById('backgroundColor2_number');
+                        backgroundColor2_number.value = 13;
+                        var backgroundColor3_number = document.getElementById('backgroundColor3_number');
+                        backgroundColor3_number.value = 3;
+                        var backgroundColor4_number = document.getElementById('backgroundColor4_number');
+                        backgroundColor4_number.value = 7;
+                    }
+                }
+
+                document.getElementById('characterSetUpper256_switch').onclick = function() {
+                    ManageSwitchSelected('characterSetUpper256_switch', true);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
+                    ManageSwitchSelected('characterSetCustom_switch', false);
+                    ManageInputEnabled('characterSetDirectory_text', false);
+                    ManageInputEnabled('characterSetSize_number', false);
+
+                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
+                    characterSetDirectory_text.value = "standard256-upper";
+                    var characterSetSize_number = document.getElementById('characterSetSize_number');
+                    characterSetSize_number.value = "256";
+                };
+
+                document.getElementById('characterSetUpperLower256_switch').onclick = function() {
+                    ManageSwitchSelected('characterSetUpper256_switch', false);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', true);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
+                    ManageSwitchSelected('characterSetCustom_switch', false);
+                    ManageInputEnabled('characterSetDirectory_text', false);
+                    ManageInputEnabled('characterSetSize_number', false);
+
+                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
+                    characterSetDirectory_text.value = "standard256-upperlower";
+                    var characterSetSize_number = document.getElementById('characterSetSize_number');
+                    characterSetSize_number.value = "256";
+                };
+
+                document.getElementById('characterSetExtendedGraphic64_switch').onclick = function() {
+                    ManageSwitchSelected('characterSetUpper256_switch', false);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', true);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
+                    ManageSwitchSelected('characterSetCustom_switch', false);
+                    ManageInputEnabled('characterSetDirectory_text', false);
+                    ManageInputEnabled('characterSetSize_number', false);
+
+                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
+                    characterSetDirectory_text.value = "extended64-graphic";
+                    var characterSetSize_number = document.getElementById('characterSetSize_number');
+                    characterSetSize_number.value = "64";
+                };
+
+                document.getElementById('characterSetExtendedAlphaNum64_switch').onclick = function() {
+                    ManageSwitchSelected('characterSetUpper256_switch', false);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', true);
+                    ManageSwitchSelected('characterSetCustom_switch', false);
+                    ManageInputEnabled('characterSetDirectory_text', false);
+                    ManageInputEnabled('characterSetSize_number', false);
+
+                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
+                    characterSetDirectory_text.value = "extended64-alphanum";
+                    var characterSetSize_number = document.getElementById('characterSetSize_number');
+                    characterSetSize_number.value = "64";
+                };
+
+                document.getElementById('characterSetCustom_switch').onclick = function() {
+                    ManageSwitchSelected('characterSetUpper256_switch', false);
+                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
+                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
+                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
+                    ManageSwitchSelected('characterSetCustom_switch', true);
+                    ManageInputEnabled('characterSetDirectory_text', true);
+                    ManageInputEnabled('characterSetSize_number', true);
+                };
+
                 document.getElementById('renderCharacterSets_button').onclick = function() {
-                    C64_SELECTED_RGB_COLORS = [];
-                    ManageSelectedColors('colorBlack_switch', C64_RGB_COLOR_BLACK);
-                    ManageSelectedColors('colorWhite_switch',  C64_RGB_COLOR_WHITE);
-                    ManageSelectedColors('colorRed_switch', C64_RGB_COLOR_RED);
-                    ManageSelectedColors('colorCyan_switch', C64_RGB_COLOR_CYAN);
-                    ManageSelectedColors('colorPurple_switch', C64_RGB_COLOR_PURPLE);
-                    ManageSelectedColors('colorGreen_switch', C64_RGB_COLOR_GREEN);
-                    ManageSelectedColors('colorBlue_switch', C64_RGB_COLOR_BLUE);
-                    ManageSelectedColors('colorYellow_switch', C64_RGB_COLOR_YELLOW);
-                    ManageSelectedColors('colorOrange_switch', C64_RGB_COLOR_ORANGE);
-                    ManageSelectedColors('colorBrown_switch', C64_RGB_COLOR_BROWN);
-                    ManageSelectedColors('colorLightRed_switch', C64_RGB_COLOR_LIGHTRED);
-                    ManageSelectedColors('colorDarkGrey_switch', C64_RGB_COLOR_DARKGREY);
-                    ManageSelectedColors('colorGrey_switch', C64_RGB_COLOR_GREY);
-                    ManageSelectedColors('colorLightGreen_switch', C64_RGB_COLOR_LIGHTGREEN);
-                    ManageSelectedColors('colorLightBlue_switch', C64_RGB_COLOR_LIGHTBLUE);
-                    ManageSelectedColors('colorLightGrey_switch', C64_RGB_COLOR_LIGHTGREY);
+                    C64_SELECTED_FOREGROUND_RGB_COLORS = [];
+                    ManageSelectedColorsSwitch('colorBlack_switch', C64_RGB_COLOR_BLACK, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorWhite_switch',  C64_RGB_COLOR_WHITE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorRed_switch', C64_RGB_COLOR_RED, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorCyan_switch', C64_RGB_COLOR_CYAN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorPurple_switch', C64_RGB_COLOR_PURPLE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorGreen_switch', C64_RGB_COLOR_GREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorBlue_switch', C64_RGB_COLOR_BLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorYellow_switch', C64_RGB_COLOR_YELLOW, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorOrange_switch', C64_RGB_COLOR_ORANGE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorBrown_switch', C64_RGB_COLOR_BROWN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorLightRed_switch', C64_RGB_COLOR_LIGHTRED, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorDarkGrey_switch', C64_RGB_COLOR_DARKGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorGrey_switch', C64_RGB_COLOR_GREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorLightGreen_switch', C64_RGB_COLOR_LIGHTGREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorLightBlue_switch', C64_RGB_COLOR_LIGHTBLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    ManageSelectedColorsSwitch('colorLightGrey_switch', C64_RGB_COLOR_LIGHTGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+
+                    C64_SELECTED_BACKGROUND_RGB_COLORS = [];
+                    ManageSelectedColorsNumber('backgroundColor1_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+
+                    // The C64 standard character mode limits accuracy of color
+                    // transitions because the background color is always set to a
+                    // single color (thus color transitions cannot be accurate unless
+                    // they are a transition TO the background color). i.e. the
+                    // white character set cannot smoothly transition to lightgrey
+                    // because the background cannot be lightgrey (if it is already
+                    // set to black for the screen). Thus the characters cannot share
+                    // both white and lightgrey and thus be used to smooth a transition
+                    // from white to lightgrey. Supporting extended (background) color
+                    // mode will provide some relief as 4 separate background colors
+                    // would then be supported per character. In standard character mode
+                    // using monochrome (i.e. a single foreground color) will result in
+                    // the most accurate transitions to/from the background color.
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    if (vic2ExtendedMode_enabled) {
+                        ManageSelectedColorsNumber('backgroundColor2_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                        ManageSelectedColorsNumber('backgroundColor3_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                        ManageSelectedColorsNumber('backgroundColor4_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                    }
+
                     RenderCharacterSets();
                 }
 
@@ -455,13 +1031,43 @@
                 document.getElementById('savePetsciiFile_button').onclick = function() {
                     var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
                     var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
-                    var inputFilePath = document.getElementById('loadImageFileName').value;
-                    var inputFileName = inputFilePath.split('\\').pop().split('/').pop();
-                    SaveByteArray(petsciiCharacterCodes, c64CharacterColors, inputFileName, document.getElementById('savePetsciiFileName').value, compatibleOutputEnabled);
+
+                    var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
+                    var c64OsOutputEnabled = c64OsOutput_switch.checked ? true:false;
+
+                    var inputFileName_file = document.getElementById('loadImageFileName_file');
+                    var inputFileName = inputFileName_file.value.split('\\').pop().split('/').pop();
+                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('savePetsciiFileName').value, compatibleOutputEnabled, c64OsOutputEnabled);
+                };
+
+                document.getElementById('originalOutput_switch').onclick = function() {
+                    ManageSwitchSelected('originalOutput_switch', true);
+                    ManageSwitchSelected('compatibleOutput_switch', false);
+                    ManageSwitchSelected('c64OsOutput_switch', false);
+                    UpdateOutputFileName();
+                    ManageInputEnabled('c64OsOutputTitle_text', false);
+                    ManageInputEnabled('c64OsOutputArtist_text', false);
+                    ManageInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
                 document.getElementById('compatibleOutput_switch').onclick = function() {
+                    ManageSwitchSelected('originalOutput_switch', false);
+                    ManageSwitchSelected('compatibleOutput_switch', true);
+                    ManageSwitchSelected('c64OsOutput_switch', false);
                     UpdateOutputFileName();
+                    ManageInputEnabled('c64OsOutputTitle_text', false);
+                    ManageInputEnabled('c64OsOutputArtist_text', false);
+                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                };
+
+                document.getElementById('c64OsOutput_switch').onclick = function() {
+                    ManageSwitchSelected('originalOutput_switch', false);
+                    ManageSwitchSelected('compatibleOutput_switch', false);
+                    ManageSwitchSelected('c64OsOutput_switch', true);
+                    UpdateOutputFileName();
+                    ManageInputEnabled('c64OsOutputTitle_text', true);
+                    ManageInputEnabled('c64OsOutputArtist_text', true);
+                    ManageInputEnabled('c64OsOutputCopyright_text', true);
                 };
             }
 
@@ -474,6 +1080,8 @@
 
                 var savePetscii_element = document.getElementById('savePetsciiFileName');
                 savePetscii_element.value = inputFileName.split('.')[0] + ".pet"
+                var c64OsOutputTitle_text = document.getElementById('c64OsOutputTitle_text');
+                c64OsOutputTitle_text.value = inputFileName.split('.')[0]
             }
 
             function RenderWorkingImage() {
@@ -487,13 +1095,12 @@
                 var skipDithering = blackAndWhiteDither_switch.checked ? false:true;
                 var greyscaleConversion_switch = document.getElementById('greyscaleConversion_switch');
                 var greyscaleConversion = greyscaleConversion_switch.checked ? true:false;
-                srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipDithering, greyscaleConversion, false, false); //Adjust contrast, Adjust brightness
+                srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipDithering, greyscaleConversion, false, false, false); //Adjust contrast, Adjust brightness, Process negative
             }
 
             function RenderCharacterSets() {
-                var backgroundColor_number = document.getElementById('backgroundColor_number');
-                var backgroundColorCode = parseInt(backgroundColor_number.value);
-                var backgroundColorRgb = GetRgbColor(backgroundColorCode);
+                var formatCharacterSets_switch = document.getElementById('formatCharacterSets_switch');
+                var formatCharacterSets = formatCharacterSets_switch.checked ? true:false;
 
                 var character = document.getElementById("character");
                 characterContainer = document.getElementById("charsetContainer");
@@ -503,89 +1110,139 @@
                     characterContainer.removeChild(characterContainer.firstChild);
                 }
 
+                var characterSetSize_number = document.getElementById('characterSetSize_number');
+                CHARACTERS = parseInt(characterSetSize_number.value);
+
                 characterCanvas = [];
                 var j = 0;
-                for (var selectedColorIndex=0; selectedColorIndex<C64_SELECTED_RGB_COLORS.length; selectedColorIndex++) {
-                    for(var i=0;i<CHARACTERS;i++) {
-                        var charCanvas = document.createElement("canvas");
-                        charCanvas.setAttribute("width", CWIDTH);
-                        charCanvas.setAttribute("height",CHEIGHT);
-                        
-                        charCanvas.style.width       = CWIDTH  + "px";
-                        charCanvas.style.height      = CHEIGHT + "px";
-                        charCanvas.style.marginRight = "2px";
-                        
-                        characterContainer.appendChild(charCanvas);
-                        characterCanvas.push(charCanvas);
-                    }
-                    characterContainer.appendChild(document.createElement("br"));
-                    
-                    character.onload = function() {
-                        var charCanvas  = characterCanvas[j];
-                        var charContext = charCanvas.getContext("2d", { willReadFrequently: true });
-                        var calculatedColorIndex = Math.floor(j/CHARACTERS);
-                        
-                        charContext.drawImage(character, 0, 0);
-                        pxbuf = CreateWorkingImage(charContext, CWIDTH, CHEIGHT, true, true, true, true); //Skip dithering, Perform greyscale conversion, Skip contrast, Skip brightness
-                        // change character data color
-                        for(var px=0; px<pxbuf.length; px++) {
-                            // dithering, for a single color white font this won't change anything. set to desired color
-                            if(pxbuf[px][0] < 128) { //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
-                                pxbuf[px][0] = backgroundColorRgb[0];
-                                pxbuf[px][1] = backgroundColorRgb[1];
-                                pxbuf[px][2] = backgroundColorRgb[2];
-                            } else {
-                                pxbuf[px][0] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][0];
-                                pxbuf[px][1] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][1];
-                                pxbuf[px][2] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][2];
-                            }
-                        }
-                        chardata[j] = pxbuf;
+                for (var selectedBackgroundColorIndex=0; selectedBackgroundColorIndex<C64_SELECTED_BACKGROUND_RGB_COLORS.length; selectedBackgroundColorIndex++) {
+                    for (var selectedForegroundColorIndex=0; selectedForegroundColorIndex<C64_SELECTED_FOREGROUND_RGB_COLORS.length; selectedForegroundColorIndex++) {
+                        for(var i=0;i<CHARACTERS;i++) {
+                            var charCanvas = document.createElement("canvas");
+                            charCanvas.setAttribute("width", CWIDTH);
+                            charCanvas.setAttribute("height",CHEIGHT);
+                            
+                            charCanvas.style.width       = CWIDTH  + "px";
+                            charCanvas.style.height      = CHEIGHT + "px";
+                            charCanvas.style.marginRight = "2px";
+                            
+                            characterContainer.appendChild(charCanvas);
+                            characterCanvas.push(charCanvas);
 
-                        var imageWidth = charContext.canvas.clientWidth;
-                        var imageHeight = charContext.canvas.clientHeight;
-                        var imageData = charContext.getImageData(0, 0, imageWidth, imageHeight);
-                        var imagePixels = imageData.data;
-                        // change character image color
-                        for(var k=0; k<imagePixels.length; k+=4)
-                        {
-                            // dithering, for a single color white font this won't change anything. set to desired color
-                            if (imagePixels[k  ] < 128)
+                            if (formatCharacterSets) {
+                                if((i + 1) % 32 == 0) {
+                                    characterContainer.appendChild(document.createElement("br"));
+                                }
+                            }
+
+                        }
+                        characterContainer.appendChild(document.createElement("br"));
+                        
+                        character.onload = function() {
+                            var charCanvas  = characterCanvas[j];
+                            var charContext = charCanvas.getContext("2d", { willReadFrequently: true });
+                            var calculatedBackgroundColorIndex = Math.floor(j/(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length));
+                            var calculatedForegroundColorIndex = Math.floor((j%(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length))/CHARACTERS);
+                            
+                            charContext.drawImage(character, 0, 0);
+                            pxbuf = CreateWorkingImage(charContext, CWIDTH, CHEIGHT, true, true, true, true, true); //Skip dithering, Perform greyscale conversion, Skip contrast, Skip brightness, Skip negative
+
+                            // create C64 character set bytes (in C64 ROM format) for saving with C64OS format (later).
+                            //If the user selects foreground == background color it will be impossible to make this later as original font color information will be overwritten (below).
+                            if (j<CHARACTERS) {
+                                for(var px=0; px<pxbuf.length; px+=8) {
+                                    var c64CustomCharacterByte = 0x00;
+                                    if(pxbuf[px  ][0] >= 128) { //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
+                                        c64CustomCharacterByte += 1;
+                                    }
+                                    if(pxbuf[px+1][0] >= 128) {
+                                        c64CustomCharacterByte += 2;
+                                    }
+                                    if(pxbuf[px+2][0] >= 128) {
+                                        c64CustomCharacterByte += 4;
+                                    }
+                                    if(pxbuf[px+3][0] >= 128) {
+                                        c64CustomCharacterByte += 8;
+                                    }
+                                    if(pxbuf[px+4][0] >= 128) {
+                                        c64CustomCharacterByte += 16;
+                                    }
+                                    if(pxbuf[px+5][0] >= 128) {
+                                        c64CustomCharacterByte += 32;
+                                    }
+                                    if(pxbuf[px+6][0] >= 128) {
+                                        c64CustomCharacterByte += 64;
+                                    }
+                                    if(pxbuf[px+7][0] >= 128) {
+                                        c64CustomCharacterByte += 128;
+                                    }
+                                    c64CustomCharacterSetBytes[j*8 + Math.trunc(px/8)] = c64CustomCharacterByte;
+                                }
+                            }
+
+                            // change character data color
+                            for(var px=0; px<pxbuf.length; px++) {
+                                // dithering, for a single color white font this won't change anything. set to desired color
+                                if(pxbuf[px][0] < 128) { //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
+                                    pxbuf[px][0] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][0];
+                                    pxbuf[px][1] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][1];
+                                    pxbuf[px][2] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][2];
+                                } else {
+                                    pxbuf[px][0] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][0];
+                                    pxbuf[px][1] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][1];
+                                    pxbuf[px][2] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][2];
+                                }
+                            }
+                            chardata[j] = pxbuf;
+
+                            var imageWidth = charContext.canvas.clientWidth;
+                            var imageHeight = charContext.canvas.clientHeight;
+                            var imageData = charContext.getImageData(0, 0, imageWidth, imageHeight);
+                            var imagePixels = imageData.data;
+                            // change character image color
+                            for(var k=0; k<imagePixels.length; k+=4)
                             {
-                                imagePixels[k  ] = backgroundColorRgb[0];
-                                imagePixels[k+1] = backgroundColorRgb[1];
-                                imagePixels[k+2] = backgroundColorRgb[2];
-                            } else {
-                                imagePixels[k  ] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][0];
-                                imagePixels[k+1] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][1];
-                                imagePixels[k+2] = C64_SELECTED_RGB_COLORS[calculatedColorIndex][2];
+                                // dithering, for a single color white font this won't change anything. set to desired color
+                                if (imagePixels[k  ] < 128) //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
+                                {
+                                    imagePixels[k  ] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][0];
+                                    imagePixels[k+1] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][1];
+                                    imagePixels[k+2] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][2];
+                                } else {
+                                    imagePixels[k  ] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][0];
+                                    imagePixels[k+1] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][1];
+                                    imagePixels[k+2] = C64_SELECTED_FOREGROUND_RGB_COLORS[calculatedForegroundColorIndex][2];
+                                }
+                                imagePixels[k+3] = 255;
                             }
-                            imagePixels[k+3] = 255;
-                        }
-                        charContext.putImageData(imageData, 0, 0);
+                            charContext.putImageData(imageData, 0, 0);
 
-                        j++;
+                            j++;
+                            loadCharacter();
+                        };
+
+                        var loadCharacter = function() {
+                            if(j >= (CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length*C64_SELECTED_BACKGROUND_RGB_COLORS.length)) {
+                                return;
+                            }
+                            var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
+                            character.src = characterSetDirectory_text.value + "/" + (j%CHARACTERS) + ".gif";
+                        };
+                        
                         loadCharacter();
-                    };
-
-                    var loadCharacter = function() {
-                        if(j >= (CHARACTERS*C64_SELECTED_RGB_COLORS.length)) {
-                            return;
-                        }
-                        character.src = CHARSET+"/"+(j%CHARACTERS)+".gif";
-                    };
-                    
-                    loadCharacter();
+                    }
                 }
             }
 
             function RenderPetsciiImage() {
                 var minimizeColorDifferencesAlgorithm_switch = document.getElementById('minimizeColorDifferencesAlgorithm_switch');
                 var minimizeColorDifferencesAlgorithm = minimizeColorDifferencesAlgorithm_switch.checked ? true:false;
+                var useGraphicsCharactersOnly_switch = document.getElementById('useGraphicsCharactersOnly_switch');
+                var useGraphicsCharactersOnly = useGraphicsCharactersOnly_switch.checked ? true:false;
 
                 var canvas = document.getElementById('canvas');
                 var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
-                Render(canvasContext,minimizeColorDifferencesAlgorithm);
+                Render(canvasContext,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly);
             }
             
             function WeightAlphaChannel(color, alpha) {
@@ -596,7 +1253,7 @@
                 return newColor;
             }
 
-            function CreateWorkingImage(context,w,h,skipDithering,greyscaleConversion, skipContrast, skipBrightness) {
+            function CreateWorkingImage(context,w,h,skipDithering,greyscaleConversion, skipContrast, skipBrightness, skipNegative) {
                 var imgd = context.getImageData(0, 0, w,h);
 
                 if (!skipContrast) {
@@ -612,6 +1269,14 @@
                     brightness = parseInt(imageBrightness_number.value);
                     if (brightness != 0) {
                         imgd = BrightnessImage(imgd, brightness);
+                    }
+                }
+
+                if (!skipNegative) {
+                    var imageNegative_switch = document.getElementById('imageNegative_switch');
+                    negative_selected = imageNegative_switch.checked;
+                    if (negative_selected) {
+                        imgd = NegativeImage(imgd);
                     }
                 }
 
@@ -668,14 +1333,14 @@
             }
 
             // refer to: https://stackoverflow.com/questions/10521978/html5-canvas-image-contrast
-            function ContrastImage(imageData, contrast) {  //input range [-100..100]
+            function ContrastImage(imageData, contrast) {  //input range [-100..200]
                 var data = imageData.data;
-                contrast = (contrast/100) + 1; //convert to decimal and shift range: [0..2]
+                contrast = (contrast/100) + 1; //convert to decimal and shift range: [0..3]
                 var intercept = 259 * (1 - contrast);
                 for(var i=0; i<data.length; i+=4) {   //r,g,b,a
-                    data[i  ] = Math.trunc(data[i  ] * contrast + intercept);
-                    data[i+1] = Math.trunc(data[i+1] * contrast + intercept);
-                    data[i+2] = Math.trunc(data[i+2] * contrast + intercept);
+                    data[i  ] = Math.min(Math.trunc(data[i  ] * contrast + intercept), 255);
+                    data[i+1] = Math.min(Math.trunc(data[i+1] * contrast + intercept), 255);
+                    data[i+2] = Math.min(Math.trunc(data[i+2] * contrast + intercept), 255);
                 }
                 return imageData;
             }
@@ -692,7 +1357,17 @@
                 return imageData;
             };
 
-            //dithering from greyscale to a two-color image (black/white)
+            function NegativeImage(imageData) {
+                var data = imageData.data;
+                for(var i=0; i<data.length; i+=4) {   //r,g,b,a
+                    data[i  ] = 255 - data[i  ];
+                    data[i+1] = 255 - data[i+1];
+                    data[i+2] = 255 - data[i+2];
+                }
+                return imageData;
+            };
+
+            // dithering from greyscale to a two-color image (black/white)
             function Dither(sb, w, h) {   // source buffer, width, height
                 for(var y=0; y<h; y++) {
                     for(var x=0; x<w; x++) {
@@ -733,41 +1408,42 @@
                 }
             }
             
-            function Render(canvasContext,minimizeColorDifferencesAlgorithm) {
+            function Render(canvasContext,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly) {
                 var charsWide = WIDTH  / CWIDTH;
                 var charsHigh = HEIGHT / CHEIGHT;
                 
                 var charCount = charsWide * charsHigh;
                 
-                var c = 0;
+                var characterIndex = 0;
                 for(var y=0;y<charsHigh;y++) {
                     for(var x=0;x<charsWide;x++) {
-                        var charBuf  = GetSourceChar(c);
-                        var matchValues = FindMatch(charBuf,minimizeColorDifferencesAlgorithm);
-                        c64CharacterColors[c] = GetC64ColorCode(C64_SELECTED_RGB_COLORS[matchValues.selectedColorIndex]);
-                        var characterSetOffset = matchValues.selectedColorIndex * 256;
+                        var imageBuf  = GetCharacterSizedPartOfSourceImage(characterIndex);
+                        var matchValues = FindMatch(imageBuf,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly);
+                        c64CharacterForegroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
+                        c64CharacterBackgroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
+                        var characterSetOffset = matchValues.selectedForegroundColorIndex*CHARACTERS + matchValues.selectedBackgroundColorIndex*C64_SELECTED_FOREGROUND_RGB_COLORS.length;
                         canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
-                        petsciiCharacterCodes[c] = matchValues.characterOffset - characterSetOffset;
-                        c++;
+                        petsciiCharacterCodes[characterIndex] = matchValues.characterOffset - characterSetOffset;
+                        characterIndex++;
                     }
                 }
             }
             
-            function GetSourceChar(c) {
+            function GetCharacterSizedPartOfSourceImage(characterIndex) {
                 var charsWide = (WIDTH  / CWIDTH); // 320 / 8 = 40
                 
                 var bytesPerRastRow = CWIDTH  * charsWide; // 8 * 40 = 320
                 var bytesPerCharRow = CHEIGHT * bytesPerRastRow; // 8 * 320 = 2560
                 
                 var startByte = 0;
-                while(c > charsWide) {
+                while(characterIndex > charsWide) {
                     startByte += bytesPerCharRow;
-                    c -= charsWide;
+                    characterIndex -= charsWide;
                 }
                 
-                while(c) {
+                while(characterIndex) {
                     startByte += CWIDTH;
-                    c--;
+                    characterIndex--;
                 }
                 
                 var charBuf = [];
@@ -781,24 +1457,27 @@
                 return charBuf;
             }
             
-            function FindMatch(buf, minimizeColorDifferencesAlgorithm) {
+            function FindMatch(imageBuf, minimizeColorDifferencesAlgorithm, useGraphicsCharactersOnly) {
                 var maximumDifference = (CWIDTH * CHEIGHT);
                 if (minimizeColorDifferencesAlgorithm) {
                     maximumDifference *= 3*255;
                 }
                 maximumDifference++;
                 var smallestDifference = maximumDifference;
-                var bestMatch = {characterOffset: 0, selectedColorIndex: 0};
+                var bestMatch = {characterOffset: 0, selectedForegroundColorIndex: 0, selectedBackgroundColorIndex: 0};
                 
                 // check the current character against all available colors for the best match.
-                for(var i=0; i<CHARACTERS*C64_SELECTED_RGB_COLORS.length; i++) {
-                    var currentDifference = Diff(buf, chardata[i], minimizeColorDifferencesAlgorithm, i == 0 ? true:false);
-                    if(currentDifference < smallestDifference) {
-                        bestMatch.characterOffset = i;
-                        bestMatch.selectedColorIndex = Math.floor(i/CHARACTERS);
-                        smallestDifference = currentDifference;
-                        if(currentDifference == 0) {
-                            break; //Perfect Match.
+                for(var i=0; i<CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length*C64_SELECTED_BACKGROUND_RGB_COLORS.length; i++) {
+                    if ( (!useGraphicsCharactersOnly) || ((i%128) >= 64) ) {
+                        var currentDifference = Diff(imageBuf, chardata[i], minimizeColorDifferencesAlgorithm);
+                        if(currentDifference < smallestDifference) {
+                            bestMatch.characterOffset = i;
+                            bestMatch.selectedBackgroundColorIndex = Math.floor(i/(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length));
+                            bestMatch.selectedForegroundColorIndex = Math.floor((i%(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length))/CHARACTERS);
+                            smallestDifference = currentDifference;
+                            if(currentDifference == 0) {
+                                break; //Perfect Match.
+                            }
                         }
                     }
                 }
@@ -806,7 +1485,7 @@
                 return bestMatch;
             }
             
-            function Diff(bufa, bufb, minimizeColorDifferencesAlgorithm,debug) {
+            function Diff(bufa, bufb, minimizeColorDifferencesAlgorithm) {
                 var difference = 0;
                 for(var i=0; i<bufa.length; i++) {
                     if (minimizeColorDifferencesAlgorithm) {
@@ -821,21 +1500,21 @@
             }
         </script>
 
-        <h2><center>C64 PETSCII Art Generator v4</center></h2>
+        <h2><center>C64 PETSCII Art Generator v5</center></h2>
         <center>Originally written by Gregory Nacu, <a href="https://c64os.com">C64OS.com</a></center></b>
         <center>Enhancements by Warren Wilbur</center>
 
         <h3>1. Select any image file in the same directory as petscii_converter.html</h3>
 
         <i>Loading source images and character set images requires support for cross origin file loading. To do this start chrome on the command line with the --allow-file-access-from-files option. e.g. "D:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html</i><br><br>
-        <input type="file" value='Sample Images/s_classic.png' id="loadImageFileName" />
+        <input type="file" value='Sample Images/s_classic.png' id="loadImageFileName_file" />
         <input type='button' value='Load Image File' id='loadImageFile_button'>
         <br>
 
         <h3>Original Image</h3>
         <img src='Sample Images/s_classic.png' id='sourceImage' style='width:320px;height:200px;'>
 
-        <h3>2. Make image adjustments and click to create working image</h3>
+        <h3>2. Make image adjustments and click to Render Working Image</h3>
 
         <h5>2.1. Select algorithm for rendering the PETSCII image</h5>
         <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
@@ -849,13 +1528,19 @@
         <label for="blackAndWhiteDither_switch">Dither to a two-color image (black/white)</label>&nbsp;&nbsp;&nbsp;
 
         <input type="checkbox" id="greyscaleConversion_switch" class="checkbox" />
-        <label for="greyscaleConversion_switch">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;<br>
+        <label for="greyscaleConversion_switch">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="number" id="imageContrast_number" name="imageContrast_number" value="0" min="-100" max="100" value="0" />
-        <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..100 percent)</label>&nbsp;&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="imageNegative_switch" name="imageNegative_switch" />
+        <label id="imageNegative_label" for="imageNegative_switch">Image negative</label>
+        <br><br>
 
-        <input type="number" id="imageBrightness_number" name="imageBrightness_number" value="0" min="-100" max="400" value="0" />
-        <label id="imageBrightness_label" for="imageBrightness_number">Image Brightness (-100..400 percent)</label>
+        <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..200 percent):</label><br>
+        <input type="range" id="imageContrast_range" name="imageContrast_range" min="-100" max="200" value="0" style="width:80%" />
+        <input type="number" id="imageContrast_number" name="imageContrast_number" min="-100" max="200" value="0" style="width:60px" />
+        <br>
+        <label id="imageBrightness_label" for="imageBrightness_number">Image Brightness (-100..400 percent):</label><br>
+        <input type="range" id="imageBrightness_range" name="imageBrightness_range" min="-100" max="400" value="0" style="width:80%" />
+        <input type="number" id="imageBrightness_number" name="imageBrightness_number" min="-100" max="400" value="0" style="width:60px" />
         <br><br>
 
         <input type='button' value='Render Working Image' id='renderWorkingImage_button'>
@@ -863,9 +1548,25 @@
         <h3>Working Image</h3>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
 
-        <h3>3. Choose colors and click to render Character Sets</h3>
+        <h3>3. Choose colors and click to Render Character Sets</h3>
+        <h5>3.1. Choose VIC-II character graphics mode</h3>
+        <input type="checkbox" id="vic2StandardMode_switch" checked class="checkbox" />
+        <label for="colorBlack_switch">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
+        <br>
 
-        <h5>3.1. Choose character set foreground colors</h3>
+        <input type="checkbox" id="vic2ExtendedMode_switch" class="checkbox" />
+        <label for="colorBlack_switch">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
+        <br><br>
+
+        Color presets:
+        <input type="button" id="colorPresetBlackAndWhite_button" class="styled" value="Black/White"/>
+        <input type="button" id="colorPresetGreyscale_button" class="styled" value="Greyscales"/>
+        <input type="button" id="colorPresetBlues_button" class="styled" value="Blues"/>
+        <input type="button" id="colorPresetBrowns_button" class="styled" value="Browns"/>
+        <input type="button" id="colorPresetReds_button" class="styled" value="Reds"/>
+        <input type="button" id="colorPresetGreens_button" class="styled" value="Greens"/>
+
+        <h5>3.2. Choose character set foreground colors</h3>
         <input type="checkbox" id="colorBlack_switch" checked class="checkbox" />
         <label for="colorBlack_switch">Black(0)</label>&nbsp;&nbsp;&nbsp;
         <input type="checkbox" id="colorWhite_switch" checked class="checkbox" />
@@ -899,27 +1600,94 @@
         <input type="checkbox" id="colorLightGrey_switch" checked class="checkbox" />
         <label for="colorLightGrey_switch">Light Grey(15)</label>&nbsp;&nbsp;&nbsp;
 
-        <h5>3.2. Choose character set background color</h3>
-        <label for="backgroundColor_number">Background color (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
-        <input type="number" id="backgroundColor_number" value="0" name="backgroundColor_number" min="0" max="15">
+        <h5>3.3. Choose character set background color</h3>
+        <label for="backgroundColor1_number">Background color1 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
+        <input type="number" id="backgroundColor1_number" value="0" name="backgroundColor1_number" min="0" max="15">
+        <br>
+        <label for="backgroundColor2_number">Background color2 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
+        <input type="number" id="backgroundColor2_number" value="0" name="backgroundColor2_number" disabled min="0" max="15">
+        <br>
+        <label for="backgroundColor3_number">Background color3 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
+        <input type="number" id="backgroundColor3_number" value="0" name="backgroundColor3_number" disabled min="0" max="15">
+        <br>
+        <label for="backgroundColor4_number">Background color4 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
+        <input type="number" id="backgroundColor4_number" value="0" name="backgroundColor4_number" disabled min="0" max="15">
+        <br>
+        <p><small>When creating a multi-color PETSCII rendering the single most
+        important choice that determines the quality of your output is the
+        background color. Try several colors and try to use the color which has
+        the most (color) transitions in the image. Your best case will occur
+        when a single (background) color has nearly all the color transitions
+        (i.e. borders with other colors) in the image.</small></p>
+
+        <h5>3.4. Choose your character set</h3>
+
+        <h6>3.4.1. Standard Character Mode</h6>
+        <input type="checkbox" id="characterSetUpper256_switch" checked class="checkbox" />
+        <label for="characterSetUpper256_switch">C64 US upper case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="characterSetUpperLower256_switch" class="checkbox" />
+        <label for="characterSetUpperLower256_switch">C64 US lower case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
+
+        <h6>3.4.2. Extended (Background) Color Mode</h6>
+        <input type="checkbox" id="characterSetExtendedGraphic64_switch" disabled class="checkbox" />
+        <label for="characterSetExtendedGraphic64_switch">C64 US upper case extended graphic (64 characters, numbers 64-127 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="characterSetExtendedAlphaNum64_switch" disabled class="checkbox" />
+        <label for="characterSetExtendedAlphaNum64_switch">C64 US upper case extended alpha-numeric (64 characters, numbers 0-63 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
+
+        <h6>3.4.3. Custom Settings (use breakout-charset.py to prepare your own custom character sets)</h6>
+        <input type="checkbox" id="characterSetCustom_switch" class="checkbox" />
+        <label for="characterSetCustom_switch">Custom</label>
+        <br>
+        <label for="characterSetDirectory_text">Enter the directory containing your character set</label>
+        <input type="text" value="standard256-upper" id="characterSetDirectory_text" disabled />
+        <br>
+        <label for="characterSetSize_number">Enter the number of characters in your character set</label>
+        <input type="number" id="characterSetSize_number" value="256" min="1" max="256" disabled />
+        <br><br>
+
+        <input type="checkbox" id="formatCharacterSets_switch" class="checkbox" />
+        <label for="colorLightGrey_switch">Format rendering of character sets into 32 characters per row</label>
         <br><br>
 
         <input type='button' value='Render Character Sets' id='renderCharacterSets_button'>
 
-        <h3>Character Sets</h3>
+        <h3>Character Sets for PETSCII Rendering</h3>
         <div id='charsetContainer'></div>
         <img src='' id='character' style='display:none;'>
 
         <h3>4. After generating Character Sets, click to render PETSCII image</h3>
+        <input type="checkbox" id="useGraphicsCharactersOnly_switch" class="checkbox" />
+        <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>
+        <br><br>
         <input type='button' value='Render PETSCII' id='renderPetscii_button'>
 
-        <h3>Canvas Image</h3>
+        <h3>PETSCII Rendered Image</h3>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
 
         <h3>5. After rendering Canvas image, enter filename and click to save PETSCII mosaic to file</h3>
-        <input type="checkbox" id="compatibleOutput_switch" class="checkbox" />
-        <label for="compatibleOutput_switch">Enable PETSCII Compositor compatible .C output file</label><br><br>
+        <input type="checkbox" id="originalOutput_switch" class="checkbox" />
+        <label for="originalOutput_switch">Enable original output format (binary)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="compatibleOutput_switch" checked class="checkbox" />
+        <label for="compatibleOutput_switch">Enable .C output format (text)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="c64OsOutput_switch" class="checkbox" />
+        <label for="c64OsOutput_switch">Enable C64OS output format (binary)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <label for="c64OsOutputTitle_text">Enter title (16 chars)</label>
+        <input type="text" id="c64OsOutputTitle_text" value="UNKNOWN" maxlength="16" disabled />
+        <br>
+        <label for="c64OsOutputArtist_text">Enter artist name (16 chars)</label>
+        <input type="text" id="c64OsOutputArtist_text" value="ANONYMOUS" maxlength="16" disabled />
+        <br>
+        <label for="c64OsOutputCopyright_text">Copyright string (16 chars)</label>
+        <input type="text" id="c64OsOutputCopyright_text" value="NOT SPECIFIED" maxlength="16" disabled />
+        <br><br>
+
         <input type='text' value='petsciiart.pet' id='savePetsciiFileName'>
         <input type='button' value='Save PETSCII File' id='savePetsciiFile_button'>
+        <br><br>
     </body>
 </html>

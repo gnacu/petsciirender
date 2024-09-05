@@ -1,7 +1,7 @@
 # petsciirender
 A web-based PETSCII Art Renderer
 
-Load petscii_converter.html in a web browser. It will automatically render whatever was the last image name typed into the source code. Change the image specified by the source image tag near the bottom of the file to have it render a different image. 
+Loading source images and character set images requires support for cross origin file loading. To do this start chrome on the command line with the --allow-file-access-from-files option. e.g. "D:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html
 
 The image does not need to be 320x200, it will be automatically scaled and resized to fit the 320x200 canvas. 
 
