@@ -38,7 +38,9 @@
             //     color mode (implement multiple background color register values for
             //     VIC-II and color ram, to accurately represent the color limitations
             //     of the VIC-II standard and extended modes). Add C64 US upper-case
-            //     character set. Add C64OS output format.
+            //     character set. Add C64OS output format. Add auto-rendering option
+            //     for easier tuning of working image changes. Re-order page to allow
+            //     working image changes to be visible together with PETSCII output.
             //
             var CHARACTERS = 256;
             var WIDTH      = 320;
@@ -291,12 +293,12 @@
                         if (vic2ExtendedMode_enabled) {
                             bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color1, 1 byte background color2, 1 byte background color3, " +
                                               "1 byte background color4, 1000 bytes PETSCII character codes (bits 7-8 background color), 1000 bytes character colors\n" +
-                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," +
-                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[1]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[2]) + "," +
-                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[3]) + ",\n";
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2])) + "," +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3])) + ",\n";
                         } else {
                             bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color, 1000 bytes PETSCII character codes, 1000 bytes character colors\n" +
-                                              FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + FormatNumberStr(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + ",\n";
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + ",\n";
                         }
 
                         for (var i=0;i<characterCodes.length;i++) {
@@ -522,6 +524,12 @@
 
                 document.getElementById('renderWorkingImage_button').onclick = function() {
                     RenderWorkingImage();
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderPetsciiImage();
+                    }
                 };
                 
                 function SetupMatchExactColorAlgorithm() {
@@ -634,12 +642,44 @@
 
                 document.getElementById('blackAndWhiteDither_switch').onclick = function() {
                     SetupBlackAndWhiteDithering();
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
+                }
+
+                document.getElementById('greyscaleConversion_switch').onclick = function() {
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
+                }
+
+                document.getElementById('imageNegative_switch').onclick = function() {
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
                 }
 
                 document.getElementById('imageContrast_range').onclick = function() {
                     var imageContrast_range = document.getElementById('imageContrast_range');
                     var imageContrast_number = document.getElementById('imageContrast_number');
                     imageContrast_number.value = imageContrast_range.value;
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
                 }
 
                 document.getElementById('imageContrast_number').onchange = function() {
@@ -652,12 +692,26 @@
                     }
                     var imageContrast_range = document.getElementById('imageContrast_range');
                     imageContrast_range.value = imageContrast_number.value;
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
                 }
 
                 document.getElementById('imageBrightness_range').onclick = function() {
                     var imageBrightness_range = document.getElementById('imageBrightness_range');
                     var imageBrightness_number = document.getElementById('imageBrightness_number');
                     imageBrightness_number.value = imageBrightness_range.value;
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
                 }
 
                 document.getElementById('imageBrightness_number').onchange = function() {
@@ -670,6 +724,13 @@
                     }
                     var imageBrightness_range = document.getElementById('imageBrightness_range');
                     imageBrightness_range.value = imageBrightness_number.value;
+
+                    var lockImage_switch = document.getElementById('lockImage_switch');
+                    var lockImage_enabled = lockImage_switch.checked ? true:false;
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
                 }
 
                 document.getElementById('vic2StandardMode_switch').onclick = function() {
@@ -1514,42 +1575,8 @@
         <h3>Original Image</h3>
         <img src='Sample Images/s_classic.png' id='sourceImage' style='width:320px;height:200px;'>
 
-        <h3>2. Make image adjustments and click to Render Working Image</h3>
-
-        <h5>2.1. Select algorithm for rendering the PETSCII image</h5>
-        <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
-        <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
-
-        <input type="checkbox" id="minimizeColorDifferencesAlgorithm_switch" checked class="checkbox" />
-        <label for="minimizeColorDifferencesAlgorithm_switch">Use 'minimize absolute color differences' algorithm</label><br>
-
-        <h5>2.2. Select working image adjustments to enhance output</h5>
-        <input type="checkbox" id="blackAndWhiteDither_switch" class="checkbox" />
-        <label for="blackAndWhiteDither_switch">Dither to a two-color image (black/white)</label>&nbsp;&nbsp;&nbsp;
-
-        <input type="checkbox" id="greyscaleConversion_switch" class="checkbox" />
-        <label for="greyscaleConversion_switch">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
-
-        <input type="checkbox" id="imageNegative_switch" name="imageNegative_switch" />
-        <label id="imageNegative_label" for="imageNegative_switch">Image negative</label>
-        <br><br>
-
-        <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..200 percent):</label><br>
-        <input type="range" id="imageContrast_range" name="imageContrast_range" min="-100" max="200" value="0" style="width:80%" />
-        <input type="number" id="imageContrast_number" name="imageContrast_number" min="-100" max="200" value="0" style="width:60px" />
-        <br>
-        <label id="imageBrightness_label" for="imageBrightness_number">Image Brightness (-100..400 percent):</label><br>
-        <input type="range" id="imageBrightness_range" name="imageBrightness_range" min="-100" max="400" value="0" style="width:80%" />
-        <input type="number" id="imageBrightness_number" name="imageBrightness_number" min="-100" max="400" value="0" style="width:60px" />
-        <br><br>
-
-        <input type='button' value='Render Working Image' id='renderWorkingImage_button'>
-
-        <h3>Working Image</h3>
-        <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
-
-        <h3>3. Choose colors and click to Render Character Sets</h3>
-        <h5>3.1. Choose VIC-II character graphics mode</h3>
+        <h3>2. Choose colors and click to Render Character Sets</h3>
+        <h5>2.1. Choose VIC-II character graphics mode</h3>
         <input type="checkbox" id="vic2StandardMode_switch" checked class="checkbox" />
         <label for="colorBlack_switch">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
         <br>
@@ -1566,7 +1593,7 @@
         <input type="button" id="colorPresetReds_button" class="styled" value="Reds"/>
         <input type="button" id="colorPresetGreens_button" class="styled" value="Greens"/>
 
-        <h5>3.2. Choose character set foreground colors</h3>
+        <h5>2.2. Choose character set foreground colors</h3>
         <input type="checkbox" id="colorBlack_switch" checked class="checkbox" />
         <label for="colorBlack_switch">Black(0)</label>&nbsp;&nbsp;&nbsp;
         <input type="checkbox" id="colorWhite_switch" checked class="checkbox" />
@@ -1600,7 +1627,7 @@
         <input type="checkbox" id="colorLightGrey_switch" checked class="checkbox" />
         <label for="colorLightGrey_switch">Light Grey(15)</label>&nbsp;&nbsp;&nbsp;
 
-        <h5>3.3. Choose character set background color</h3>
+        <h5>2.3. Choose character set background color</h3>
         <label for="backgroundColor1_number">Background color1 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
         <input type="number" id="backgroundColor1_number" value="0" name="backgroundColor1_number" min="0" max="15">
         <br>
@@ -1620,23 +1647,23 @@
         when a single (background) color has nearly all the color transitions
         (i.e. borders with other colors) in the image.</small></p>
 
-        <h5>3.4. Choose your character set</h3>
+        <h5>2.4. Choose your character set</h3>
 
-        <h6>3.4.1. Standard Character Mode</h6>
+        <h6>2.4.1. Standard Character Mode</h6>
         <input type="checkbox" id="characterSetUpper256_switch" checked class="checkbox" />
         <label for="characterSetUpper256_switch">C64 US upper case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="characterSetUpperLower256_switch" class="checkbox" />
         <label for="characterSetUpperLower256_switch">C64 US lower case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
 
-        <h6>3.4.2. Extended (Background) Color Mode</h6>
+        <h6>2.4.2. Extended (Background) Color Mode</h6>
         <input type="checkbox" id="characterSetExtendedGraphic64_switch" disabled class="checkbox" />
         <label for="characterSetExtendedGraphic64_switch">C64 US upper case extended graphic (64 characters, numbers 64-127 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="characterSetExtendedAlphaNum64_switch" disabled class="checkbox" />
         <label for="characterSetExtendedAlphaNum64_switch">C64 US upper case extended alpha-numeric (64 characters, numbers 0-63 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
 
-        <h6>3.4.3. Custom Settings (use breakout-charset.py to prepare your own custom character sets)</h6>
+        <h6>2.4.3. Custom Settings (use breakout-charset.py to prepare your own custom character sets)</h6>
         <input type="checkbox" id="characterSetCustom_switch" class="checkbox" />
         <label for="characterSetCustom_switch">Custom</label>
         <br>
@@ -1657,14 +1684,51 @@
         <div id='charsetContainer'></div>
         <img src='' id='character' style='display:none;'>
 
-        <h3>4. After generating Character Sets, click to render PETSCII image</h3>
-        <input type="checkbox" id="useGraphicsCharactersOnly_switch" class="checkbox" />
-        <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>
-        <br><br>
-        <input type='button' value='Render PETSCII' id='renderPetscii_button'>
+        <h3>3. Make image adjustments and click to Render Working Image</h3>
 
-        <h3>PETSCII Rendered Image</h3>
+        <h5>3.1. Select algorithm for rendering the PETSCII image</h5>
+        <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
+        <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="minimizeColorDifferencesAlgorithm_switch" checked class="checkbox" />
+        <label for="minimizeColorDifferencesAlgorithm_switch">Use 'minimize absolute color differences' algorithm</label><br>
+
+        <h5>3.2. Select working image adjustments to enhance output</h5>
+        <input type="checkbox" id="blackAndWhiteDither_switch" class="checkbox" />
+        <label for="blackAndWhiteDither_switch">Dither to a two-color image (black/white)</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="greyscaleConversion_switch" class="checkbox" />
+        <label for="greyscaleConversion_switch">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="imageNegative_switch" name="imageNegative_switch" />
+        <label id="imageNegative_label" for="imageNegative_switch">Image negative</label>
+        <br><br>
+
+        <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..200 percent):</label><br>
+        <input type="range" id="imageContrast_range" name="imageContrast_range" min="-100" max="200" value="0" style="width:80%" />
+        <input type="number" id="imageContrast_number" name="imageContrast_number" min="-100" max="200" value="0" style="width:60px" />
+        <br>
+        <label id="imageBrightness_label" for="imageBrightness_number">Image Brightness (-100..400 percent):</label><br>
+        <input type="range" id="imageBrightness_range" name="imageBrightness_range" min="-100" max="400" value="0" style="width:80%" />
+        <input type="number" id="imageBrightness_number" name="imageBrightness_number" min="-100" max="400" value="0" style="width:60px" />
+        <br>
+
+        <input type='button' value='Render Working Image' id='renderWorkingImage_button'>
+        <br><br>
+        Working Image<br>
+        <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
+
+        <h3>4. After generating Character Sets, click to render PETSCII image</h3>
+        PETSCII Rendered Image<br>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
+        <br>
+
+        <input type="checkbox" id="useGraphicsCharactersOnly_switch" class="checkbox" />
+        <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>&nbsp;&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="lockImage_switch" class="checkbox" />
+        <label for="lockImage_switch">Auto-rendering (automatically update when working image changes)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type='button' value='Render PETSCII' id='renderPetscii_button'>
 
         <h3>5. After rendering Canvas image, enter filename and click to save PETSCII mosaic to file</h3>
         <input type="checkbox" id="originalOutput_switch" class="checkbox" />
