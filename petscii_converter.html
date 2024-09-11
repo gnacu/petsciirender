@@ -42,6 +42,10 @@
             //     for easier tuning of working image changes. Re-order page to allow
             //     working image changes to be visible together with PETSCII output.
             //
+            // v6: Enhancement by Warren Wilbur.
+            //     Add new binary and assembly save/export formats to output PETSCII
+            //     codes and colors to facilitate import into (external) PETSCII
+            //     editor(s). Cleanup file save/export format descriptions.
             var CHARACTERS = 256;
             var WIDTH      = 320;
             var HEIGHT     = 200;
@@ -217,10 +221,18 @@
             var characterContainer;
             var characterCanvas = [];
 
-            // format number between 0-255 into a three column string (padding with leading zeros as necessary, i.e. 1 -> 001)
-            function FormatNumberStr(colorCode) {
+            // format number between 0-255 into a formatLength column string (padding with leading zeros as necessary, i.e. 1 -> 001)
+            function FormatNumberStr(colorCode, formatLength) {
                 var colorCodeStr = colorCode.toString();
-                while (colorCodeStr.length < 3) {
+                while (colorCodeStr.length < formatLength) {
+                    colorCodeStr = "0" + colorCodeStr;
+                }
+                return colorCodeStr;
+            }
+
+            // format string into a formatLength column string (padding with leading zeros as necessary, i.e. 1 -> 001)
+            function FormatStr(colorCodeStr, formatLength) {
+                while (colorCodeStr.length < formatLength) {
                     colorCodeStr = "0" + colorCodeStr;
                 }
                 return colorCodeStr;
@@ -274,76 +286,158 @@
                 return petsciiBytes;
             }
 
+            function EncodeExtendedColorModeCharacter(inputChar, backgroundColorIndex) {
+                var encodedChar = inputChar & 0b00111111;
+                switch (backgroundColorIndex) {
+                    case 0:
+                        encodedChar |= 0b00000000;
+                        break;
+                    case 1:
+                        encodedChar |= 0b01000000;
+                        break;
+                    case 2:
+                        encodedChar |= 0b10000000;
+                        break;
+                    case 3:
+                        encodedChar |= 0b11000000;
+                        break;
+                }
+                console.log("inputChar:" + inputChar + ", backgroundColorIndex:" + backgroundColorIndex + ", encodedChar:" + encodedChar);
+                return encodedChar;
+            }
+
 			var SaveByteArray = (function () {
                 var a = document.createElement("a");
                 document.body.appendChild(a);
                 a.style = "display: none";
                 
-                return function (characterCodes, characterForegroundColors, characterBackgroundColors, inputFileName, outputFileName, compatibleOutputEnabled, c64OsOutputEnabled) {
-                    // original output format by default
-                    var blob = new Blob([characterCodes], {type: "application/octet-stream"});
-                    if (compatibleOutputEnabled) {
+                return function (characterCodes, characterForegroundColors, characterBackgroundColors, inputFileName, outputFileName, binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled) {
+                    var characterSetUpper256_switch = document.getElementById('characterSetUpper256_switch');
+                    var characterSetUpper256_enabled = characterSetUpper256_switch.checked ? true:false;
+                    var characterSetUpperLower256_switch = document.getElementById('characterSetUpperLower256_switch');
+                    var characterSetUpperLower256_enabled = characterSetUpperLower256_switch.checked ? true:false;
+                    var characterSetCustom_switch = document.getElementById('characterSetCustom_switch');
+                    var characterSetCustom_enabled = characterSetCustom_switch.checked ? true:false;
+
+                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked ? true:false;
+
+                    var saveFields = [];
+                    var blob = undefined;
+                    if (binaryCharactersOnlyOutput_enabled) {
+                        // output format is binary stream of 1000 PETSCII character codes
+                        if (vic2ExtendedMode_enabled) {
+                            var extendedCharacterCodes = new Uint8Array(characterCodes.length);
+                            for (var i=0; i<characterCodes.length; i++) {
+                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                extendedCharacterCodes[i] = EncodeExtendedColorModeCharacter(characterCodes[i], backgroundColorIndex);
+                            }
+                            blob = new Blob([extendedCharacterCodes], {type: "application/octet-stream"});
+                        } else {
+                            blob = new Blob([characterCodes], {type: "application/octet-stream"});
+                        }
+                    } else if (binaryCharactersAndColorsOutput_enabled) {
+                        // output format is binary stream of 1000 PETSCII character codes followed by 1000 character foreground color codes, provided for import into C64 Studio for editing
+                        if (vic2ExtendedMode_enabled) {
+                            var extendedCharacterCodes = new Uint8Array(characterCodes.length);
+                            for (var i=0; i<characterCodes.length; i++) {
+                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                extendedCharacterCodes[i] = EncodeExtendedColorModeCharacter(characterCodes[i], backgroundColorIndex);
+                            }
+                            saveFields.push(extendedCharacterCodes);
+                            saveFields.push(GetUint8Array(characterForegroundColors));
+                            blob = new Blob(saveFields, {type: "application/octet-stream"});
+                        } else {
+                            saveFields.push(characterCodes);
+                            saveFields.push(GetUint8Array(characterForegroundColors));
+                            blob = new Blob(saveFields, {type: "application/octet-stream"});
+                        }
+                    } else if (cLanguageTextOutput_enabled) {
+                        //output format is provided to be compatible with .C output generated by PETSCII Compositor (not compatible when Extended Background Color Mode is selected as three extra background color codes are saved)
                         var bufStr =      "// generated by petscii_converter.html\n" +
                                           "//    imagefile: " + inputFileName + "\n" +
                                           "//     contrast: " + contrast + "\n" +
                                           "//   brightness: " + brightness + "\n";
 
-                        var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                        var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked ? true:false;
                         if (vic2ExtendedMode_enabled) {
-                            bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color1, 1 byte background color2, 1 byte background color3, " +
-                                              "1 byte background color4, 1000 bytes PETSCII character codes (bits 7-8 background color), 1000 bytes character colors\n" +
-                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," +
-                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2])) + "," +
-                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3])) + ",\n";
+                            bufStr = bufStr + "//  VIC-II mode: Extended Background Color Mode\n" +
+                                              "unsigned char frame0000[]={// 1 byte border color, 1 byte background color1, 1 byte background color2, 1 byte background color3, 1 byte background color4, " +
+                                              "1000 bytes PETSCII character codes (bits 7-8 background color index), 1000 bytes character foreground colors\n" +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), 3) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), 3) + "," +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1]), 3) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2]), 3) + "," +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3]), 3) + ",\n";
                         } else {
-                            bufStr = bufStr + "unsigned char frame0000[]={// 1 byte border color, 1 byte background color, 1000 bytes PETSCII character codes, 1000 bytes character colors\n" +
-                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0])) + ",\n";
+                            bufStr = bufStr + "//  VIC-II mode: Standard Character Mode\n" +
+                                              "unsigned char frame0000[]={// 1 byte border color, 1 byte background color, 1000 bytes PETSCII character codes, 1000 bytes character foreground colors\n" +
+                                              FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), 3) + "," + FormatNumberStr(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), 3) + ",\n";
                         }
 
                         for (var i=0;i<characterCodes.length;i++) {
                             characterCode = characterCodes[i];
                             if (vic2ExtendedMode_enabled) {
-                                backgroundColorIndex = FindIndexOfSelectedColor(characterBackgroundColors[i], C64_SELECTED_BACKGROUND_RGB_COLORS);
-                                switch (backgroundColorIndex) {
-                                    case 0:
-                                        characterCode = (characterCode & 0b00111111) | 0b00000000;
-                                        break;
-                                    case 1:
-                                        characterCode = (characterCode & 0b00111111) | 0b01000000;
-                                        break;
-                                    case 2:
-                                        characterCode = (characterCode & 0b00111111) | 0b10000000;
-                                        break;
-                                    case 3:
-                                        characterCode = (characterCode & 0b00111111) | 0b11000000;
-                                        break;
-                                }
+                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                characterCode = EncodeExtendedColorModeCharacter(characterCode, backgroundColorIndex);
                             }
-                            bufStr = bufStr + FormatNumberStr(characterCode) + ",";
+                            bufStr = bufStr + FormatNumberStr(characterCode, 3) + ",";
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "\n";
                             }
                         }
 
                         for (var i=0; i<characterForegroundColors.length; i++) {
-                            bufStr = bufStr + FormatNumberStr(characterForegroundColors[i]) + ",";
+                            bufStr = bufStr + FormatNumberStr(characterForegroundColors[i], 3) + ",";
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "\n";
                             }
                         }
 
                         bufStr = bufStr + "};\n";
-                        bufStr = bufStr + "// META: 40 25 C64 upper";
+                        if (characterSetUpper256_enabled) {
+                            bufStr = bufStr + "// META: 40 25 C64 upper";
+                        } else if (characterSetUpperLower256_enabled) {
+                            bufStr = bufStr + "// META: 40 25 C64 lower";
+                        } else if (characterSetCustom_enabled) {
+                            bufStr = bufStr + "// META: 40 25 C64 custom";
+                        }
                         blob = new Blob([bufStr], {type: "text/plain"});
-                    } else if (c64OsOutputEnabled) {
-                        var characterSetUpper256_switch = document.getElementById('characterSetUpper256_switch');
-                        var characterSetUpper256_switch_enabled = characterSetUpper256_switch.checked;
-                        var characterSetUpperLower256_switch = document.getElementById('characterSetUpperLower256_switch');
-                        var characterSetUpperLower256_switch_enabled = characterSetUpperLower256_switch.checked;
-                        var characterSetCustom_switch = document.getElementById('characterSetCustom_switch');
-                        var characterSetCustom_switch_enabled = characterSetCustom_switch.checked;
+                    } else if (asmLanguageTextOutput_enabled) {
+                        // output format is assembly language, provided for import into C64 Studio for editing
+                        var bufStr = ";size 40,25\n" +
+                                     ";screen char data\n";
 
+                        for (var i=0;i<characterCodes.length;i++) {
+                            characterCode = characterCodes[i];
+                            if (vic2ExtendedMode_enabled) {
+                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                characterCode = EncodeExtendedColorModeCharacter(characterCode, backgroundColorIndex);
+                            }
+                            if (i % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "!byte ";
+                            }
+                            bufStr = bufStr + "$" + FormatStr(characterCode.toString(16), 2);
+                            if ((i+1) % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "\n";
+                            } else {
+                                bufStr = bufStr + ",";
+                            }
+                        }
+
+                        bufStr = bufStr + "\n;screen color data\n";
+                        for (var i=0; i<characterForegroundColors.length; i++) {
+                            if (i % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "!byte ";
+                            }
+                            bufStr = bufStr + "$" + FormatStr(characterForegroundColors[i].toString(16), 2);
+                            if ((i+1) % (WIDTH/CWIDTH) == 0) {
+                                bufStr = bufStr + "\n";
+                            } else {
+                                bufStr = bufStr + ",";
+                            }
+                        }
+
+                        blob = new Blob([bufStr], {type: "text/plain"});
+                    } else if (c64OsOutput_enabled) {
+                        //output format is provided to be used with C64OS
                         var c64OsOutputTitle_text = document.getElementById('c64OsOutputTitle_text');
                         var title_value = c64OsOutputTitle_text.value;
                         if (title_value == undefined) {
@@ -360,8 +454,7 @@
                             copyright_value = "";
                         }
 
-                        var saveFields = [];
-                        if (characterSetUpper256_switch_enabled) {
+                        if (characterSetUpper256_enabled) {
                             //refer to https://c64os.com/post/imageformats
                             //
                             // Version 0 implies the Uppercase/Graphics character set (from the standard C64 Char ROM.)
@@ -386,7 +479,7 @@
                             saveFields.push(characterForegroundColors);
                             saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
                             saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
-                        } else if (characterSetUpperLower256_switch_enabled) {
+                        } else if (characterSetUpperLower256_enabled) {
                             //refer to https://c64os.com/post/imageformats
                             //
                             // Version 1 is identical to Version 0, but implies the Lowercase/Uppercase character set.
@@ -411,7 +504,7 @@
                             saveFields.push(characterForegroundColors);
                             saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
                             saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
-                        } else if (characterSetCustom_switch_enabled) {
+                        } else if (characterSetCustom_enabled) {
                             //refer to https://c64os.com/post/imageformats
                             //
                             // version 2 adds the 2KB character set at the end. The character set is in the same format as a 2KB charset in the ROM. 
@@ -491,11 +584,20 @@
 
             function UpdateOutputFileName()
             {
-                var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
-                var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+                var binaryCharactersOnlyOutput_switch = document.getElementById('binaryCharactersOnlyOutput_switch');
+                var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_switch.checked ? true:false;
+
+                var binaryCharactersAndColorsOutput_switch = document.getElementById('binaryCharactersAndColorsOutput_switch');
+                var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_switch.checked ? true:false;
+
+                var cLanguageTextOutput_switch = document.getElementById('cLanguageTextOutput_switch');
+                var cLanguageTextOutput_enabled = cLanguageTextOutput_switch.checked ? true:false;
+
+                var asmLanguageTextOutput_switch = document.getElementById('asmLanguageTextOutput_switch');
+                var asmLanguageTextOutput_enabled = asmLanguageTextOutput_switch.checked ? true:false;
 
                 var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
-                var c64OsOutputEnabled = c64OsOutput_switch.checked ? true:false;
+                var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
 
                 var savePetscii_element = document.getElementById('savePetsciiFileName');
                 var savePetsciiFileName = savePetscii_element.value;
@@ -507,12 +609,13 @@
                 {
                     savePetsciiFileName = "petsciiart";
                 }
-                if (compatibleOutputEnabled) {
+
+                if (cLanguageTextOutput_enabled) {
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".c"
-                } else if (c64OsOutputEnabled) {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".bin"
+                } else if (asmLanguageTextOutput_enabled) {
+                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".asm"
                 } else {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".pet"
+                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".bin"
                 }
             }
 
@@ -579,7 +682,6 @@
                         ManageInputEnabled('backgroundColor_number', false);
                         var backgroundColor_number = document.getElementById('backgroundColor_number');
                         backgroundColor_number.value = 0;
-
                     } else {
                         ManageSwitchSelected('minimizeColorDifferencesAlgorithm_switch', true);
 
@@ -765,15 +867,12 @@
                     ManageInputEnabled('characterSetExtendedGraphic64_switch', true);
                     ManageInputEnabled('characterSetExtendedAlphaNum64_switch', true);
                     ManageInputEnabled('c64OsOutput_switch', false);
-                    ManageSwitchSelected('c64OsOutput_switch', false);
-                    var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
-                    var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
-                    var originalOutput_switch = document.getElementById('originalOutput_switch');
-                    var originalOutputEnabled = originalOutput_switch.checked ? true:false;
-                    if ( (!originalOutputEnabled) && (!compatibleOutputEnabled) )
-                    {
-                        ManageSwitchSelected('compatibleOutput_switch', true);
+                    var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
+                    var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
+                    if (c64OsOutput_enabled) {
+                        document.getElementById('cLanguageTextOutput_switch').click();
                     }
+                    ManageSwitchSelected('c64OsOutput_switch', false);
                 }
 
                 document.getElementById('colorPresetBlackAndWhite_button').onclick = function() {
@@ -1090,20 +1189,32 @@
                 };
 
                 document.getElementById('savePetsciiFile_button').onclick = function() {
-                    var compatibleOutput_switch = document.getElementById('compatibleOutput_switch');
-                    var compatibleOutputEnabled = compatibleOutput_switch.checked ? true:false;
+                    var binaryCharactersOnlyOutput_switch = document.getElementById('binaryCharactersOnlyOutput_switch');
+                    var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_switch.checked ? true:false;
+
+                    var binaryCharactersAndColorsOutput_switch = document.getElementById('binaryCharactersAndColorsOutput_switch');
+                    var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_switch.checked ? true:false;
+
+                    var cLanguageTextOutput_switch = document.getElementById('cLanguageTextOutput_switch');
+                    var cLanguageTextOutput_enabled = cLanguageTextOutput_switch.checked ? true:false;
+
+                    var asmLanguageTextOutput_switch = document.getElementById('asmLanguageTextOutput_switch');
+                    var asmLanguageTextOutput_enabled = asmLanguageTextOutput_switch.checked ? true:false;
 
                     var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
-                    var c64OsOutputEnabled = c64OsOutput_switch.checked ? true:false;
+                    var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
 
                     var inputFileName_file = document.getElementById('loadImageFileName_file');
                     var inputFileName = inputFileName_file.value.split('\\').pop().split('/').pop();
-                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('savePetsciiFileName').value, compatibleOutputEnabled, c64OsOutputEnabled);
+                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('savePetsciiFileName').value,
+                                  binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled);
                 };
 
-                document.getElementById('originalOutput_switch').onclick = function() {
-                    ManageSwitchSelected('originalOutput_switch', true);
-                    ManageSwitchSelected('compatibleOutput_switch', false);
+                document.getElementById('binaryCharactersOnlyOutput_switch').onclick = function() {
+                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', true);
+                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
+                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', false);
                     UpdateOutputFileName();
                     ManageInputEnabled('c64OsOutputTitle_text', false);
@@ -1111,9 +1222,35 @@
                     ManageInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
-                document.getElementById('compatibleOutput_switch').onclick = function() {
-                    ManageSwitchSelected('originalOutput_switch', false);
-                    ManageSwitchSelected('compatibleOutput_switch', true);
+                document.getElementById('binaryCharactersAndColorsOutput_switch').onclick = function() {
+                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
+                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', true);
+                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('c64OsOutput_switch', false);
+                    UpdateOutputFileName();
+                    ManageInputEnabled('c64OsOutputTitle_text', false);
+                    ManageInputEnabled('c64OsOutputArtist_text', false);
+                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                };
+
+                document.getElementById('cLanguageTextOutput_switch').onclick = function() {
+                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
+                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
+                    ManageSwitchSelected('cLanguageTextOutput_switch', true);
+                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('c64OsOutput_switch', false);
+                    UpdateOutputFileName();
+                    ManageInputEnabled('c64OsOutputTitle_text', false);
+                    ManageInputEnabled('c64OsOutputArtist_text', false);
+                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                };
+
+                document.getElementById('asmLanguageTextOutput_switch').onclick = function() {
+                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
+                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
+                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('asmLanguageTextOutput_switch', true);
                     ManageSwitchSelected('c64OsOutput_switch', false);
                     UpdateOutputFileName();
                     ManageInputEnabled('c64OsOutputTitle_text', false);
@@ -1122,8 +1259,10 @@
                 };
 
                 document.getElementById('c64OsOutput_switch').onclick = function() {
-                    ManageSwitchSelected('originalOutput_switch', false);
-                    ManageSwitchSelected('compatibleOutput_switch', false);
+                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
+                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
+                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
+                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', true);
                     UpdateOutputFileName();
                     ManageInputEnabled('c64OsOutputTitle_text', true);
@@ -1482,8 +1621,8 @@
                         var matchValues = FindMatch(imageBuf,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly);
                         c64CharacterForegroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
                         c64CharacterBackgroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
-                        var characterSetOffset = matchValues.selectedForegroundColorIndex*CHARACTERS + matchValues.selectedBackgroundColorIndex*C64_SELECTED_FOREGROUND_RGB_COLORS.length;
                         canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
+                        var characterSetOffset = matchValues.selectedBackgroundColorIndex*C64_SELECTED_FOREGROUND_RGB_COLORS.length*CHARACTERS + matchValues.selectedForegroundColorIndex*CHARACTERS;
                         petsciiCharacterCodes[characterIndex] = matchValues.characterOffset - characterSetOffset;
                         characterIndex++;
                     }
@@ -1731,15 +1870,23 @@
         <input type='button' value='Render PETSCII' id='renderPetscii_button'>
 
         <h3>5. After rendering Canvas image, enter filename and click to save PETSCII mosaic to file</h3>
-        <input type="checkbox" id="originalOutput_switch" class="checkbox" />
-        <label for="originalOutput_switch">Enable original output format (binary)</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="binaryCharactersOnlyOutput_switch" class="checkbox" />
+        <label for="binaryCharactersOnlyOutput_switch">Save as (binary) stream of 1000 PETSCII character codes</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="compatibleOutput_switch" checked class="checkbox" />
-        <label for="compatibleOutput_switch">Enable .C output format (text)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="binaryCharactersAndColorsOutput_switch" class="checkbox" />
+        <label for="binaryCharactersAndColorsOutput_switch">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="cLanguageTextOutput_switch" checked class="checkbox" />
+        <label for="cLanguageTextOutput_switch">Enable .C output format (text)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="asmLanguageTextOutput_switch" class="checkbox" />
+        <label for="asmLanguageTextOutput_switch">Enable assembly (.asm) output format (text)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="c64OsOutput_switch" class="checkbox" />
         <label for="c64OsOutput_switch">Enable C64OS output format (binary)</label>&nbsp;&nbsp;&nbsp;
         <br>
+        File Header Fields (C64OS format only):<br>
         <label for="c64OsOutputTitle_text">Enter title (16 chars)</label>
         <input type="text" id="c64OsOutputTitle_text" value="UNKNOWN" maxlength="16" disabled />
         <br>
