@@ -1762,7 +1762,7 @@
         <input type="checkbox" id="colorLightGrey_switch" checked class="checkbox" />
         <label for="colorLightGrey_switch">Light Grey(15)</label>&nbsp;&nbsp;&nbsp;
 
-        <h5>2.3. Choose character set background color</h3>
+        <h5>2.3. Choose character set background color(s)</h3>
         <label for="backgroundColor1_number">Background color1 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
         <input type="number" id="backgroundColor1_number" value="0" name="backgroundColor1_number" min="0" max="15">
         <br>
@@ -1775,12 +1775,9 @@
         <label for="backgroundColor4_number">Background color4 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
         <input type="number" id="backgroundColor4_number" value="0" name="backgroundColor4_number" disabled min="0" max="15">
         <br>
-        <p><small>When creating a multi-color PETSCII rendering the single most
-        important choice that determines the quality of your output is the
-        background color. Try several colors and try to use the color which has
-        the most (color) transitions in the image. Your best case will occur
-        when a single (background) color has nearly all the color transitions
-        (i.e. borders with other colors) in the image.</small></p>
+        <p><small>When creating a multi-color PETSCII rendering the single most important choice that determines the quality of your output is the
+        background color. Try several colors and aim to use the color which has the most (color) transitions (i.e. borders with other colors) in the
+        image. Your best case (in Standard Character Mode) will occur when a single background color has all the color transitions in the image.</small></p>
 
         <h5>2.4. Choose your character set</h3>
 
@@ -1853,7 +1850,7 @@
         Working Image<br>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
 
-        <h3>4. After generating Character Sets, click to render PETSCII image</h3>
+        <h3>4. Click to render PETSCII image</h3>
         PETSCII Rendered Image<br>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
         <br>
@@ -1865,7 +1862,7 @@
         <br>
         <input type='button' value='Render PETSCII' id='renderPetscii_button'>
 
-        <h3>5. After rendering Canvas image, enter filename and click to save PETSCII mosaic to file</h3>
+        <h3>5. Enter filename and click to save PETSCII mosaic to file</h3>
 
         <input type="checkbox" id="binaryCharactersOnlyOutput_switch" class="checkbox" />
         <label for="binaryCharactersOnlyOutput_switch">Save as (binary) stream of 1000 PETSCII character codes</label>&nbsp;&nbsp;&nbsp;

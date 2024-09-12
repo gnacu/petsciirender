@@ -1,5 +1,10 @@
 # petsciirender
-A web-based PETSCII Art Renderer
+A web-based PETSCII Art Renderer.
+
+Features:
+- Rendering in Standard (High-Res) Character Mode or Extended Background Color Mode.
+- Support for custom character sets.
+- Save file formats that can be imported into external PETSCII editors.
 
 Loading source images and character set images requires support for cross origin file loading. To do this start chrome on the command line with the --allow-file-access-from-files option. e.g. "D:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html
 
