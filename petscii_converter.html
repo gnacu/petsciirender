@@ -6,7 +6,21 @@
             C64 PETSCII Art Generator v6
         </title>
         <style type='text/css'>
-        
+            .button {
+                background-color: #000000; /* Black */
+                border: 1px solid black;
+                border-color: #000000;
+                color: white;
+                padding: 2px 4px;
+                text-align: center;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 16px;
+            }
+            .button:hover {
+                background-color: #FFFFFF; /* White */
+                color: black;
+            }
         </style>
     </head>
     <body onload='Init();'>
@@ -1268,14 +1282,19 @@
             }
 
             function LoadImageFile(inputFilePath) {
-                var inputFileName = inputFilePath.split('\\').pop().split('/').pop();
+                var separator = '/';
+                // check which separator character our browser is using
+                if (inputFilePath.includes("\\")) {
+                    separator = '\\';
+                }
+                var inputFileName = inputFilePath.split(separator).pop();
                 var sourceImage = document.getElementById('sourceImage');
-                sourceImage.crossOrigin = "anonymous";
+                console.log("loading image inputFileName: " + inputFileName + ", inputFilePath: " + inputFilePath);
+                sourceImage.src = "Sample Images/" + inputFileName;
+                //sourceImage.crossOrigin = null;
+                //sourceImage.crossOrigin = "Anonymous";
                 sourceImage.title = inputFileName;
-                sourceImage.src = inputFileName;
 
-                var savePetscii_element = document.getElementById('savePetsciiFileName');
-                savePetscii_element.value = inputFileName.split('.')[0] + ".pet"
                 var c64OsOutputTitle_text = document.getElementById('c64OsOutputTitle_text');
                 c64OsOutputTitle_text.value = inputFileName.split('.')[0]
             }
@@ -1423,6 +1442,9 @@
                             }
                             var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
                             character.src = characterSetDirectory_text.value + "/" + (j%CHARACTERS) + ".gif";
+                            //character.crossOrigin = null;
+                            //character.crossOrigin = "Anonymous";
+                            
                         };
                         
                         loadCharacter();
@@ -1697,38 +1719,45 @@
         </script>
 
         <h2><center>C64 PETSCII Art Generator v6</center></h2>
+
         <center>Originally written by Gregory Nacu, <a href="https://c64os.com">C64OS.com</a></center></b>
         <center>Enhancements by Warren Wilbur</center>
 
-        <h3>1. Select any image file in the same directory as petscii_converter.html</h3>
+        <h3>1. Select any image file in the 'Sample Images' directory</h3>
 
-        <i>Loading source images and character set images requires support for cross origin file loading. To do this start chrome on the command line with the --allow-file-access-from-files option. e.g. "D:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html</i><br><br>
-        <input type="file" value='Sample Images/s_classic.png' id="loadImageFileName_file" />
-        <input type='button' value='Load Image File' id='loadImageFile_button'>
+        <small><i>Loading source images and character set images requires support for
+        cross origin file loading. To do this start chrome on the command line
+        with the --allow-file-access-from-files option.<br>
+        e.g. On Windows start Chrome from the command prompt using "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html<br>
+        e.g. On Mac OSX start Safari, in menu select Safari / Settings / Advanced and click to select 'Show features for web developers', then change to the Developers tab and click to select 'Security: Disable local file restrictions'.</i></small><br><br>
+        <input type="file" class="button" value='Sample Images/s_classic.png' id="loadImageFileName_file" />
+        <input type="button" class="button" value='Load Image File' id='loadImageFile_button'>
         <br>
 
         <h3>Original Image</h3>
         <img src='Sample Images/s_classic.png' id='sourceImage' style='width:320px;height:200px;'>
 
         <h3>2. Choose colors and click to Render Character Sets</h3>
+
         <h5>2.1. Choose VIC-II character graphics mode</h3>
+
         <input type="checkbox" id="vic2StandardMode_switch" checked class="checkbox" />
         <label for="colorBlack_switch">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
         <br>
-
         <input type="checkbox" id="vic2ExtendedMode_switch" class="checkbox" />
         <label for="colorBlack_switch">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
-        <br><br>
-
+        <br>
+        <br>
         Color presets:
-        <input type="button" id="colorPresetBlackAndWhite_button" class="styled" value="Black/White"/>
-        <input type="button" id="colorPresetGreyscale_button" class="styled" value="Greyscales"/>
-        <input type="button" id="colorPresetBlues_button" class="styled" value="Blues"/>
-        <input type="button" id="colorPresetBrowns_button" class="styled" value="Browns"/>
-        <input type="button" id="colorPresetReds_button" class="styled" value="Reds"/>
-        <input type="button" id="colorPresetGreens_button" class="styled" value="Greens"/>
+        <input type="button" class="button" id="colorPresetBlackAndWhite_button" class="styled" value="Black/White"/>
+        <input type="button" class="button" id="colorPresetGreyscale_button" class="styled" value="Greyscales"/>
+        <input type="button" class="button" id="colorPresetBlues_button" class="styled" value="Blues"/>
+        <input type="button" class="button" id="colorPresetBrowns_button" class="styled" value="Browns"/>
+        <input type="button" class="button" id="colorPresetReds_button" class="styled" value="Reds"/>
+        <input type="button" class="button" id="colorPresetGreens_button" class="styled" value="Greens"/>
 
         <h5>2.2. Choose character set foreground colors</h3>
+
         <input type="checkbox" id="colorBlack_switch" checked class="checkbox" />
         <label for="colorBlack_switch">Black(0)</label>&nbsp;&nbsp;&nbsp;
         <input type="checkbox" id="colorWhite_switch" checked class="checkbox" />
@@ -1782,6 +1811,7 @@
         <h5>2.4. Choose your character set</h3>
 
         <h6>2.4.1. Standard Character Mode</h6>
+
         <input type="checkbox" id="characterSetUpper256_switch" checked class="checkbox" />
         <label for="characterSetUpper256_switch">C64 US upper case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
         <br>
@@ -1789,6 +1819,7 @@
         <label for="characterSetUpperLower256_switch">C64 US lower case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
 
         <h6>2.4.2. Extended (Background) Color Mode</h6>
+
         <input type="checkbox" id="characterSetExtendedGraphic64_switch" disabled class="checkbox" />
         <label for="characterSetExtendedGraphic64_switch">C64 US upper case extended graphic (64 characters, numbers 64-127 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
         <br>
@@ -1804,13 +1835,13 @@
         <br>
         <label for="characterSetSize_number">Enter the number of characters in your character set</label>
         <input type="number" id="characterSetSize_number" value="256" min="1" max="256" disabled />
-        <br><br>
-
+        <br>
+        <br>
         <input type="checkbox" id="formatCharacterSets_switch" class="checkbox" />
         <label for="colorLightGrey_switch">Format rendering of character sets into 32 characters per row</label>
-        <br><br>
-
-        <input type='button' value='Render Character Sets' id='renderCharacterSets_button'>
+        <br>
+        <br>
+        <input type="button" class="button" value='Render Character Sets' id='renderCharacterSets_button'>
 
         <h3>Character Sets for PETSCII Rendering</h3>
         <div id='charsetContainer'></div>
@@ -1823,7 +1854,7 @@
         <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
 
         <input type="checkbox" id="minimizeColorDifferencesAlgorithm_switch" checked class="checkbox" />
-        <label for="minimizeColorDifferencesAlgorithm_switch">Use 'minimize absolute color differences' algorithm</label><br>
+        <label for="minimizeColorDifferencesAlgorithm_switch">Use 'minimize absolute color differences' algorithm</label>
 
         <h5>3.2. Select working image adjustments to enhance output</h5>
         <input type="checkbox" id="blackAndWhiteDither_switch" class="checkbox" />
@@ -1834,8 +1865,8 @@
 
         <input type="checkbox" id="imageNegative_switch" name="imageNegative_switch" />
         <label id="imageNegative_label" for="imageNegative_switch">Image negative</label>
-        <br><br>
-
+        <br>
+        <br>
         <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..200 percent):</label><br>
         <input type="range" id="imageContrast_range" name="imageContrast_range" min="-100" max="200" value="0" style="width:80%" />
         <input type="number" id="imageContrast_number" name="imageContrast_number" min="-100" max="200" value="0" style="width:60px" />
@@ -1844,23 +1875,24 @@
         <input type="range" id="imageBrightness_range" name="imageBrightness_range" min="-100" max="400" value="0" style="width:80%" />
         <input type="number" id="imageBrightness_number" name="imageBrightness_number" min="-100" max="400" value="0" style="width:60px" />
         <br>
-
-        <input type='button' value='Render Working Image' id='renderWorkingImage_button'>
-        <br><br>
+        <input type="button" class="button" value='Render Working Image' id='renderWorkingImage_button'>
+        <br>
+        <br>
         Working Image<br>
         <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
 
         <h3>4. Click to render PETSCII image</h3>
-        PETSCII Rendered Image<br>
-        <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
-        <br>
-
         <input type="checkbox" id="useGraphicsCharactersOnly_switch" class="checkbox" />
         <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>&nbsp;&nbsp;&nbsp;&nbsp;
         <input type="checkbox" id="lockImage_switch" class="checkbox" />
         <label for="lockImage_switch">Auto-rendering (automatically update when working image changes)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type='button' value='Render PETSCII' id='renderPetscii_button'>
+        <br>
+        <input type="button" class="button" value="Render PETSCII" id="renderPetscii_button">
+        <br>
+        <br>
+        PETSCII Rendered Image<br>
+        <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
 
         <h3>5. Enter filename and click to save PETSCII mosaic to file</h3>
 
@@ -1888,10 +1920,11 @@
         <br>
         <label for="c64OsOutputCopyright_text">Copyright string (16 chars)</label>
         <input type="text" id="c64OsOutputCopyright_text" value="NOT SPECIFIED" maxlength="16" disabled />
-        <br><br>
-
-        <input type='text' value='petsciiart.pet' id='savePetsciiFileName'>
-        <input type='button' value='Save PETSCII File' id='savePetsciiFile_button'>
-        <br><br>
+        <br>
+        <br>
+        <input type="text" value="petsciiart.c" id="savePetsciiFileName">
+        <input type="button" class="button" value="Save PETSCII File" id="savePetsciiFile_button">
+        <br>
+        <br>
     </body>
 </html>
