@@ -624,6 +624,8 @@
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".c"
                 } else if (asmLanguageTextOutput_enabled) {
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".asm"
+                } else if (binaryCharactersOnlyOutput_enabled) {
+                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".pet"
                 } else {
                     savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".bin"
                 }
@@ -1289,7 +1291,6 @@
                 }
                 var inputFileName = inputFilePath.split(separator).pop();
                 var sourceImage = document.getElementById('sourceImage');
-                console.log("loading image inputFileName: " + inputFileName + ", inputFilePath: " + inputFilePath);
                 sourceImage.src = "Sample Images/" + inputFileName;
                 //sourceImage.crossOrigin = null;
                 //sourceImage.crossOrigin = "Anonymous";
@@ -1725,11 +1726,16 @@
 
         <h3>1. Select any image file in the 'Sample Images' directory</h3>
 
-        <small><i>Loading source images and character set images requires support for
-        cross origin file loading. To do this start chrome on the command line
-        with the --allow-file-access-from-files option.<br>
-        e.g. On Windows start Chrome from the command prompt using "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html<br>
-        e.g. On Mac OSX start Safari, in menu select Safari / Settings / Advanced and click to select 'Show features for web developers', then change to the Developers tab and click to select 'Security: Disable local file restrictions'.</i></small><br><br>
+        <small><i>Loading local source image and character set image files requires support for cross origin file loading. To do this:
+        <small>
+        <small>
+        <ul>
+            <li>On Windows: Start Chrome from the command prompt using "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html</li>
+            <li>On Mac OSX: Start Safari, in menu select Safari / Settings / Advanced and click to select 'Show features for web developers', then change to the Developers tab and click to select 'Security: Disable local file restrictions'.</li>
+        </ul>
+        </small>
+        </small>
+        </small></i>
         <input type="file" class="button" value='Sample Images/s_classic.png' id="loadImageFileName_file" />
         <input type="button" class="button" value='Load Image File' id='loadImageFile_button'>
         <br>
@@ -1886,7 +1892,6 @@
         <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>&nbsp;&nbsp;&nbsp;&nbsp;
         <input type="checkbox" id="lockImage_switch" class="checkbox" />
         <label for="lockImage_switch">Auto-rendering (automatically update when working image changes)</label>&nbsp;&nbsp;&nbsp;
-        <br>
         <br>
         <input type="button" class="button" value="Render PETSCII" id="renderPetscii_button">
         <br>
