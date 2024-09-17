@@ -649,11 +649,9 @@
                 
                 function SetupMatchExactColorAlgorithm() {
                     var matchExactColorAlgorithm_switch = document.getElementById('matchExactColorAlgorithm_switch');
-                    var matchExactColorAlgorithm = matchExactColorAlgorithm_switch.checked ? true:false;
-                    if (matchExactColorAlgorithm)
+                    var matchExactColorAlgorithm_enabled = matchExactColorAlgorithm_switch.checked ? true:false;
+                    if (matchExactColorAlgorithm_enabled)
                     {
-                        ManageSwitchSelected('minimizeColorDifferencesAlgorithm_switch', false);
-
                         ManageInputEnabled('blackAndWhiteDither_switch', false);
                         ManageSwitchSelected('blackAndWhiteDither_switch', true);
                         SetupBlackAndWhiteDithering();
@@ -691,12 +689,10 @@
                         ManageInputEnabled('colorLightGrey_switch', false);
                         ManageSwitchSelected('colorLightGrey_switch', false);
 
-                        ManageInputEnabled('backgroundColor_number', false);
-                        var backgroundColor_number = document.getElementById('backgroundColor_number');
-                        backgroundColor_number.value = 0;
+                        ManageInputEnabled('backgroundColor1_number', false);
+                        var backgroundColor1_number = document.getElementById('backgroundColor1_number');
+                        backgroundColor1_number.value = 0;
                     } else {
-                        ManageSwitchSelected('minimizeColorDifferencesAlgorithm_switch', true);
-
                         ManageInputEnabled('blackAndWhiteDither_switch', true);
 
                         ManageInputEnabled('colorBlack_switch', true);
@@ -716,27 +712,43 @@
                         ManageInputEnabled('colorLightBlue_switch', true);
                         ManageInputEnabled('colorLightGrey_switch', true);
 
-                        ManageInputEnabled('backgroundColor_number', true);
+                        ManageInputEnabled('backgroundColor1_number', true);
                     }
                 }
 
                 document.getElementById('matchExactColorAlgorithm_switch').onclick = function() {
-                    SetupMatchExactColorAlgorithm();
-                    SetupMinimizeColorDifferencesAlgorithm();
-                };
-
-                function SetupMinimizeColorDifferencesAlgorithm() {
-                    var minimizeColorDifferencesAlgorithm_switch = document.getElementById('minimizeColorDifferencesAlgorithm_switch');
-                    var minimizeColorDifferencesAlgorithm = minimizeColorDifferencesAlgorithm_switch.checked ? true:false;
-                    if (minimizeColorDifferencesAlgorithm) {
-                        ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
+                    var matchExactColorAlgorithm_switch = document.getElementById('matchExactColorAlgorithm_switch');
+                    var matchExactColorAlgorithm_switch_enabled = matchExactColorAlgorithm_switch.checked ? true:false;
+                    if (matchExactColorAlgorithm_switch_enabled) {
+                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', false);
+                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', false);
                     } else {
                         ManageSwitchSelected('matchExactColorAlgorithm_switch', true);
                     }
-                }
+                    SetupMatchExactColorAlgorithm();
+                };
 
-                document.getElementById('minimizeColorDifferencesAlgorithm_switch').onclick = function() {
-                    SetupMinimizeColorDifferencesAlgorithm();
+                document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch').onclick = function() {
+                    var minimizeColorDifferencesLinearAlgorithm_switch = document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch');
+                    var minimizeColorDifferencesLinearAlgorithm_enabled = minimizeColorDifferencesLinearAlgorithm_switch.checked ? true:false;
+                    if (minimizeColorDifferencesLinearAlgorithm_enabled) {
+                        ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
+                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', false);
+                    } else {
+                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', true);
+                    }
+                    SetupMatchExactColorAlgorithm();
+                };
+
+                document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch').onclick = function() {
+                    var minimizeColorDifferencesExponentialAlgorithm_switch = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch');
+                    var minimizeColorDifferencesExponentialAlgorithm_enabled = minimizeColorDifferencesExponentialAlgorithm_switch.checked ? true:false;
+                    if (minimizeColorDifferencesExponentialAlgorithm_enabled) {
+                        ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
+                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', false);
+                    } else {
+                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', true);
+                    }
                     SetupMatchExactColorAlgorithm();
                 };
 
@@ -1454,14 +1466,16 @@
             }
 
             function RenderPetsciiImage() {
-                var minimizeColorDifferencesAlgorithm_switch = document.getElementById('minimizeColorDifferencesAlgorithm_switch');
-                var minimizeColorDifferencesAlgorithm = minimizeColorDifferencesAlgorithm_switch.checked ? true:false;
+                var minimizeColorDifferencesLinearAlgorithm_switch = document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch');
+                var minimizeColorDifferencesLinearAlgorithm = minimizeColorDifferencesLinearAlgorithm_switch.checked ? true:false;
+                var minimizeColorDifferencesExponentialAlgorithm_switch = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch');
+                var minimizeColorDifferencesExponentialAlgorithm = minimizeColorDifferencesExponentialAlgorithm_switch.checked ? true:false;
                 var useGraphicsCharactersOnly_switch = document.getElementById('useGraphicsCharactersOnly_switch');
                 var useGraphicsCharactersOnly = useGraphicsCharactersOnly_switch.checked ? true:false;
 
                 var canvas = document.getElementById('canvas');
                 var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
-                Render(canvasContext,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly);
+                Render(canvasContext,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly);
             }
             
             function WeightAlphaChannel(color, alpha) {
@@ -1627,7 +1641,7 @@
                 }
             }
             
-            function Render(canvasContext,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly) {
+            function Render(canvasContext,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly) {
                 var charsWide = WIDTH  / CWIDTH;
                 var charsHigh = HEIGHT / CHEIGHT;
                 
@@ -1637,7 +1651,7 @@
                 for(var y=0;y<charsHigh;y++) {
                     for(var x=0;x<charsWide;x++) {
                         var imageBuf  = GetCharacterSizedPartOfSourceImage(characterIndex);
-                        var matchValues = FindMatch(imageBuf,minimizeColorDifferencesAlgorithm,useGraphicsCharactersOnly);
+                        var matchValues = FindMatch(imageBuf,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly);
                         c64CharacterForegroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
                         c64CharacterBackgroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
                         canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
@@ -1676,10 +1690,12 @@
                 return charBuf;
             }
             
-            function FindMatch(imageBuf, minimizeColorDifferencesAlgorithm, useGraphicsCharactersOnly) {
+            function FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly) {
                 var maximumDifference = (CWIDTH * CHEIGHT);
-                if (minimizeColorDifferencesAlgorithm) {
+                if (minimizeColorDifferencesLinearAlgorithm) {
                     maximumDifference *= 3*255;
+                } else if (minimizeColorDifferencesExponentialAlgorithm) {
+                    maximumDifference *= 3*(255**2);
                 }
                 maximumDifference++;
                 var smallestDifference = maximumDifference;
@@ -1688,7 +1704,7 @@
                 // check the current character against all available colors for the best match.
                 for(var i=0; i<CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length*C64_SELECTED_BACKGROUND_RGB_COLORS.length; i++) {
                     if ( (!useGraphicsCharactersOnly) || ((i%128) >= 64) ) {
-                        var currentDifference = Diff(imageBuf, chardata[i], minimizeColorDifferencesAlgorithm);
+                        var currentDifference = Diff(imageBuf, chardata[i], minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm);
                         if(currentDifference < smallestDifference) {
                             bestMatch.characterOffset = i;
                             bestMatch.selectedBackgroundColorIndex = Math.floor(i/(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length));
@@ -1704,11 +1720,13 @@
                 return bestMatch;
             }
             
-            function Diff(bufa, bufb, minimizeColorDifferencesAlgorithm) {
+            function Diff(bufa, bufb, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm) {
                 var difference = 0;
                 for(var i=0; i<bufa.length; i++) {
-                    if (minimizeColorDifferencesAlgorithm) {
+                    if (minimizeColorDifferencesLinearAlgorithm) {
                         difference += Math.abs(bufa[i][0] - bufb[i][0]) + Math.abs(bufa[i][1] - bufb[i][1]) + Math.abs(bufa[i][2] - bufb[i][2]);
+                    } else if (minimizeColorDifferencesExponentialAlgorithm) {
+                        difference += Math.abs(bufa[i][0] - bufb[i][0])**2 + Math.abs(bufa[i][1] - bufb[i][1])**2 + Math.abs(bufa[i][2] - bufb[i][2])**2;
                     } else { //matchExactColorAlgorithm
                         if ( (bufa[i][0] != bufb[i][0]) || (bufa[i][1] != bufb[i][1]) || (bufa[i][2] != bufb[i][2]) ) {
                             difference++;
@@ -1859,8 +1877,11 @@
         <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
         <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="minimizeColorDifferencesAlgorithm_switch" checked class="checkbox" />
-        <label for="minimizeColorDifferencesAlgorithm_switch">Use 'minimize absolute color differences' algorithm</label>
+        <input type="checkbox" id="minimizeColorDifferencesLinearAlgorithm_switch" checked class="checkbox" />
+        <label for="minimizeColorDifferencesLinearAlgorithm_switch">Use 'minimize absolute color differences (linear)' algorithm</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_switch" class="checkbox" />
+        <label for="minimizeColorDifferencesExponentialAlgorithm_switch">Use 'minimize absolute color differences (exponential)' algorithm</label>
 
         <h5>3.2. Select working image adjustments to enhance output</h5>
         <input type="checkbox" id="blackAndWhiteDither_switch" class="checkbox" />
