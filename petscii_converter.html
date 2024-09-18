@@ -60,6 +60,26 @@
             //     Add new binary and assembly save/export formats to output PETSCII
             //     codes and colors to facilitate import into external PETSCII
             //     editors. Cleanup file save/export format descriptions.
+            //
+            //     v7: Enhancement by Warren Wilbur. Add exponential color difference
+            //     algorithm (so character colors that miss by a single large amount
+            //     won't compete with character colors that miss by multiple small amounts).
+            //
+            //TODO v7: Planned enhancement. Add additional rendering improvements (see
+            //     findMatch). Characters that are the wrong shape but the right color
+            //     will match perfectly (i.e. black '@' will match blank). Characters
+            //     that contain pixels that miss (the ideal) by 1 or more pixels are
+            //     treated equally (a miss by a bit is the same as a miss by alot).
+            //     It would be nice to score shape (from grayscale image) and color
+            //     (from color image) separately and let the user balance shape v.s.
+            //     color accuracy in the rendering output. Define color averaging
+            //     for specific characters (which are dithered, single color score).
+            //     Provide color substitutions in output (to minimize PETSCII editor
+            //     time in post-processing).
+            //     
+            //TODO v8: Planned enhancement. Add project save/load file (JSON).
+            //     Add support for either web service or command line usage (for
+            //     build toolchain use) for automatically converting image files.
             var CHARACTERS = 256;
             var WIDTH      = 320;
             var HEIGHT     = 200;
@@ -592,7 +612,7 @@
                 switch_manage.checked = select ? true:false;
             }
 
-            function UpdateOutputFileName()
+            function UpdateOutputFileName(loadingNewFile)
             {
                 var binaryCharactersOnlyOutput_switch = document.getElementById('binaryCharactersOnlyOutput_switch');
                 var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_switch.checked ? true:false;
@@ -611,9 +631,9 @@
 
                 var savePetscii_element = document.getElementById('savePetsciiFileName');
                 var savePetsciiFileName = savePetscii_element.value;
-                if (savePetsciiFileName.length == 0)
+                if ( (savePetsciiFileName.length == 0) || (loadingNewFile) )
                 {
-                    savePetsciiFileName = document.getElementById('loadImageFileName_file').value;
+                    savePetsciiFileName = GetFileNameFromPath(document.getElementById('loadImageFileName_file').value);
                 }
                 if (savePetsciiFileName.length == 0)
                 {
@@ -634,7 +654,7 @@
             function Init() {
                 document.getElementById('loadImageFile_button').onclick = function() {
                     LoadImageFile(document.getElementById('loadImageFileName_file').value);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(true);
                 };
 
                 document.getElementById('renderWorkingImage_button').onclick = function() {
@@ -1240,7 +1260,7 @@
                     ManageSwitchSelected('cLanguageTextOutput_switch', false);
                     ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', false);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(false);
                     ManageInputEnabled('c64OsOutputTitle_text', false);
                     ManageInputEnabled('c64OsOutputArtist_text', false);
                     ManageInputEnabled('c64OsOutputCopyright_text', false);
@@ -1252,7 +1272,7 @@
                     ManageSwitchSelected('cLanguageTextOutput_switch', false);
                     ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', false);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(false);
                     ManageInputEnabled('c64OsOutputTitle_text', false);
                     ManageInputEnabled('c64OsOutputArtist_text', false);
                     ManageInputEnabled('c64OsOutputCopyright_text', false);
@@ -1264,7 +1284,7 @@
                     ManageSwitchSelected('cLanguageTextOutput_switch', true);
                     ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', false);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(false);
                     ManageInputEnabled('c64OsOutputTitle_text', false);
                     ManageInputEnabled('c64OsOutputArtist_text', false);
                     ManageInputEnabled('c64OsOutputCopyright_text', false);
@@ -1276,7 +1296,7 @@
                     ManageSwitchSelected('cLanguageTextOutput_switch', false);
                     ManageSwitchSelected('asmLanguageTextOutput_switch', true);
                     ManageSwitchSelected('c64OsOutput_switch', false);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(false);
                     ManageInputEnabled('c64OsOutputTitle_text', false);
                     ManageInputEnabled('c64OsOutputArtist_text', false);
                     ManageInputEnabled('c64OsOutputCopyright_text', false);
@@ -1288,20 +1308,25 @@
                     ManageSwitchSelected('cLanguageTextOutput_switch', false);
                     ManageSwitchSelected('asmLanguageTextOutput_switch', false);
                     ManageSwitchSelected('c64OsOutput_switch', true);
-                    UpdateOutputFileName();
+                    UpdateOutputFileName(false);
                     ManageInputEnabled('c64OsOutputTitle_text', true);
                     ManageInputEnabled('c64OsOutputArtist_text', true);
                     ManageInputEnabled('c64OsOutputCopyright_text', true);
                 };
             }
 
-            function LoadImageFile(inputFilePath) {
+            function GetFileNameFromPath(filePath) {
                 var separator = '/';
                 // check which separator character our browser is using
-                if (inputFilePath.includes("\\")) {
+                if (filePath.includes("\\")) {
                     separator = '\\';
                 }
-                var inputFileName = inputFilePath.split(separator).pop();
+                var fileName = filePath.split(separator).pop();
+                return fileName;
+            }
+
+            function LoadImageFile(inputFilePath) {
+                var inputFileName = GetFileNameFromPath(inputFilePath);
                 var sourceImage = document.getElementById('sourceImage');
                 sourceImage.src = "Sample Images/" + inputFileName;
                 //sourceImage.crossOrigin = null;
@@ -1724,9 +1749,9 @@
                 var difference = 0;
                 for(var i=0; i<bufa.length; i++) {
                     if (minimizeColorDifferencesLinearAlgorithm) {
-                        difference += Math.abs(bufa[i][0] - bufb[i][0]) + Math.abs(bufa[i][1] - bufb[i][1]) + Math.abs(bufa[i][2] - bufb[i][2]);
+                            difference += Math.abs(bufa[i][0] - bufb[i][0]) + Math.abs(bufa[i][1] - bufb[i][1]) + Math.abs(bufa[i][2] - bufb[i][2]);
                     } else if (minimizeColorDifferencesExponentialAlgorithm) {
-                        difference += Math.abs(bufa[i][0] - bufb[i][0])**2 + Math.abs(bufa[i][1] - bufb[i][1])**2 + Math.abs(bufa[i][2] - bufb[i][2])**2;
+                        difference += (bufa[i][0] - bufb[i][0])**2 + (bufa[i][1] - bufb[i][1])**2 + (bufa[i][2] - bufb[i][2])**2;
                     } else { //matchExactColorAlgorithm
                         if ( (bufa[i][0] != bufb[i][0]) || (bufa[i][1] != bufb[i][1]) || (bufa[i][2] != bufb[i][2]) ) {
                             difference++;
@@ -1877,10 +1902,10 @@
         <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
         <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="minimizeColorDifferencesLinearAlgorithm_switch" checked class="checkbox" />
+        <input type="checkbox" id="minimizeColorDifferencesLinearAlgorithm_switch" class="checkbox" />
         <label for="minimizeColorDifferencesLinearAlgorithm_switch">Use 'minimize absolute color differences (linear)' algorithm</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_switch" class="checkbox" />
+        <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_switch" checked class="checkbox" />
         <label for="minimizeColorDifferencesExponentialAlgorithm_switch">Use 'minimize absolute color differences (exponential)' algorithm</label>
 
         <h5>3.2. Select working image adjustments to enhance output</h5>
