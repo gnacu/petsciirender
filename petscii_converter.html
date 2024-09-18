@@ -1500,7 +1500,7 @@
 
                 var canvas = document.getElementById('canvas');
                 var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
-                Render(canvasContext,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly);
+                Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
             }
             
             function WeightAlphaChannel(color, alpha) {
@@ -1666,7 +1666,7 @@
                 }
             }
             
-            function Render(canvasContext,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly) {
+            function Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly) {
                 var charsWide = WIDTH  / CWIDTH;
                 var charsHigh = HEIGHT / CHEIGHT;
                 
@@ -1676,7 +1676,7 @@
                 for(var y=0;y<charsHigh;y++) {
                     for(var x=0;x<charsWide;x++) {
                         var imageBuf  = GetCharacterSizedPartOfSourceImage(characterIndex);
-                        var matchValues = FindMatch(imageBuf,minimizeColorDifferencesLinearAlgorithm,minimizeColorDifferencesExponentialAlgorithm,useGraphicsCharactersOnly);
+                        var matchValues = FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
                         c64CharacterForegroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
                         c64CharacterBackgroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
                         canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
@@ -1951,13 +1951,13 @@
         <label for="binaryCharactersOnlyOutput_switch">Save as (binary) stream of 1000 PETSCII character codes</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="binaryCharactersAndColorsOutput_switch" class="checkbox" />
-        <label for="binaryCharactersAndColorsOutput_switch">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes</label>&nbsp;&nbsp;&nbsp;
+        <label for="binaryCharactersAndColorsOutput_switch">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="cLanguageTextOutput_switch" checked class="checkbox" />
-        <label for="cLanguageTextOutput_switch">Save as (text) .c output format (not compatible when custom character set or Extended Background Color Mode are selected)</label>&nbsp;&nbsp;&nbsp;
+        <label for="cLanguageTextOutput_switch">Save as (text) .c output format (for import into Marq's PETSCII editor, not compatible when custom character set or Extended Background Color Mode are selected)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="asmLanguageTextOutput_switch" class="checkbox" />
-        <label for="asmLanguageTextOutput_switch">Save as (text) .asm output format</label>&nbsp;&nbsp;&nbsp;
+        <label for="asmLanguageTextOutput_switch">Save as (text) .asm output format (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="c64OsOutput_switch" class="checkbox" />
         <label for="c64OsOutput_switch">Save as (binary) stream in C64OS output format</label>&nbsp;&nbsp;&nbsp;
