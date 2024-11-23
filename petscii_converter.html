@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <title>
-            C64 PETSCII Art Generator v6
+            C64 PETSCII Art Generator v7
         </title>
         <style type='text/css'>
             .button {
@@ -61,11 +61,14 @@
             //     codes and colors to facilitate import into external PETSCII
             //     editors. Cleanup file save/export format descriptions.
             //
-            //     v7: Enhancement by Warren Wilbur. Add exponential color difference
-            //     algorithm (so character colors that miss by a single large amount
-            //     won't compete with character colors that miss by multiple small amounts).
+            // v7: Enhancement by Warren Wilbur.
+            //     Add exponential color difference algorithm (so character colors that
+            //     miss by a single large amount won't compete with character colors that
+            //     miss by multiple small amounts). Add project save/load file (JSON).
+            //     Provide color substitutions in output (to minimize PETSCII editor
+            //     time in post-processing).
             //
-            //TODO v7: Planned enhancement. Add additional rendering improvements (see
+            //TODO v8: Planned enhancement. Add additional rendering improvements (see
             //     findMatch). Characters that are the wrong shape but the right color
             //     will match perfectly (i.e. black '@' will match blank). Characters
             //     that contain pixels that miss (the ideal) by 1 or more pixels are
@@ -74,10 +77,8 @@
             //     (from color image) separately and let the user balance shape v.s.
             //     color accuracy in the rendering output. Define color averaging
             //     for specific characters (which are dithered, single color score).
-            //     Provide color substitutions in output (to minimize PETSCII editor
-            //     time in post-processing).
             //     
-            //TODO v8: Planned enhancement. Add project save/load file (JSON).
+            //TODO v9: Planned enhancement. 
             //     Add support for either web service or command line usage (for
             //     build toolchain use) for automatically converting image files.
             var CHARACTERS = 256;
@@ -309,8 +310,7 @@
             }
 
             // convert to PETSCII, truncate to maximumLength, terminate with 0x00, pad with 0x00;
-            function PrepareTextField(asciiStr, maximumLength)
-            {
+            function PrepareTextField(asciiStr, maximumLength) {
                 var petsciiBytes = ConvertAsciiStrToPetsciiBytes(asciiStr);
                 petsciiBytes = PadBytes(petsciiBytes, maximumLength);
                 if (petsciiBytes.length > maximumLength) {
@@ -339,25 +339,120 @@
                 return encodedChar;
             }
 
+            function SetInputEnabled(elementId, enable) {
+                var element = document.getElementById(elementId);
+                element.disabled = enable ? false:true;
+            }
+
+            function GetInputValue(inputId) {
+                var inputElement = document.getElementById(inputId);
+                return inputElement.value;
+            }
+
+            function SetInputValue(inputId, value) {
+                var inputElement = document.getElementById(inputId);
+                inputElement.value = value;
+            }
+
+            function SetCheckboxSelected(checkboxId, select) {
+                var checkboxElement = document.getElementById(checkboxId);
+                checkboxElement.checked = select ? true:false;
+            }
+
+            function GetCheckboxSetting(checkboxId) {
+                var checkboxElement = document.getElementById(checkboxId);
+                return checkboxElement.checked ? true:false;
+            }
+
 			var SaveByteArray = (function () {
                 var a = document.createElement("a");
                 document.body.appendChild(a);
                 a.style = "display: none";
                 
-                return function (characterCodes, characterForegroundColors, characterBackgroundColors, inputFileName, outputFileName, binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled) {
-                    var characterSetUpper256_switch = document.getElementById('characterSetUpper256_switch');
-                    var characterSetUpper256_enabled = characterSetUpper256_switch.checked ? true:false;
-                    var characterSetUpperLower256_switch = document.getElementById('characterSetUpperLower256_switch');
-                    var characterSetUpperLower256_enabled = characterSetUpperLower256_switch.checked ? true:false;
-                    var characterSetCustom_switch = document.getElementById('characterSetCustom_switch');
-                    var characterSetCustom_enabled = characterSetCustom_switch.checked ? true:false;
+                return function (characterCodes, characterForegroundColors, characterBackgroundColors, inputFileName, outputFileName, projectJsonOutput_checkbox_enabled, binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled) {
+                    var vic2ExtendedMode_enabled = GetCheckboxSetting('vic2ExtendedMode_checkbox');
 
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked ? true:false;
+                    var characterSetUpper256_enabled = GetCheckboxSetting('characterSetUpper256_checkbox');
+                    var characterSetUpperLower256_enabled = GetCheckboxSetting('characterSetUpper256_checkbox');
+                    var characterSetExtendedGraphic64_enabled = GetCheckboxSetting('characterSetExtendedGraphic64_checkbox');
+                    var characterSetExtendedAlphaNum64_enabled = GetCheckboxSetting('characterSetExtendedAlphaNum64_checkbox');
+                    var characterSetCustom_enabled = GetCheckboxSetting('characterSetCustom_checkbox');
+                    var characterSetDirectory_text = GetInputValue('characterSetDirectory_text');
+                    var characterSetSize_number = GetInputValue('characterSetSize_number');
+
+                    var matchExactColorAlgorithm_enabled = GetCheckboxSetting('matchExactColorAlgorithm_checkbox');
+                    var minimizeColorDifferencesLinearAlgorithm_enabled = GetCheckboxSetting('minimizeColorDifferencesLinearAlgorithm_checkbox');
+                    var minimizeColorDifferencesExponentialAlgorithm_enabled = GetCheckboxSetting('minimizeColorDifferencesExponentialAlgorithm_checkbox');
+
+                    var blackAndWhiteDither_enabled = GetCheckboxSetting('blackAndWhiteDither_checkbox');
+                    var greyscaleConversion_enabled = GetCheckboxSetting('greyscaleConversion_checkbox');
+                    var imageNegative_enabled = GetCheckboxSetting('imageNegative_checkbox');
+                    var imageContrast_number = GetInputValue('imageContrast_number');
+                    var imageBrightness_number = GetInputValue('imageBrightness_number');
+
+                    var useGraphicsCharactersOnly_enabled = GetCheckboxSetting('useGraphicsCharactersOnly_checkbox');
+                    var colorSubstitutions = null;
+                    var colorSubstitutions_text = GetInputValue('colorSubstitutions_text');
+                    if (colorSubstitutions_text.length > 0) {
+                        colorSubstitutions = colorSubstitutions_text.split(/\s+/);
+                    }
+
+                    var processedCharacterForegroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+                    for (var i=0; i<characterForegroundColors.length; i++) {
+                        processedCharacterForegroundColors[i] = ProcessColorSubstitutions(characterForegroundColors[i], true, colorSubstitutions);
+                    }
+                    var processedCharacterBackgroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
+                    for (var i=0; i<characterBackgroundColors.length; i++) {
+                        processedCharacterBackgroundColors[i] = ProcessColorSubstitutions(characterBackgroundColors[i], false, colorSubstitutions);
+                    }
 
                     var saveFields = [];
                     var blob = undefined;
-                    if (binaryCharactersOnlyOutput_enabled) {
+                    if (projectJsonOutput_checkbox_enabled) {
+                        //output format is JSON text format, provided for saving and loading project settings into petscii_converter.html
+                        var bufStr = "{\n";
+                        bufStr = bufStr + '  "inputFileName":' + JSON.stringify(inputFileName) + ",\n";
+                        bufStr = bufStr + '  "vic2ExtendedMode":' + JSON.stringify(vic2ExtendedMode_enabled) + ",\n";
+                        bufStr = bufStr + '  "selectedForegroundColors":[';
+                        for (var i=0; i<C64_SELECTED_FOREGROUND_RGB_COLORS.length; i++) {
+                            bufStr = bufStr + GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[i]);
+                            if (i < C64_SELECTED_FOREGROUND_RGB_COLORS.length - 1) {
+                                bufStr = bufStr + ",";
+                            }
+                        }
+                        bufStr = bufStr + "],\n";
+                        bufStr = bufStr + '  "selectedBackgroundColors":[';
+                        for (var i=0; i<C64_SELECTED_BACKGROUND_RGB_COLORS.length; i++) {
+                            bufStr = bufStr + GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[i]);
+                            if (i < C64_SELECTED_BACKGROUND_RGB_COLORS.length - 1) {
+                                bufStr = bufStr + ",";
+                            }
+                        }
+                        bufStr = bufStr + "],\n";
+                        bufStr = bufStr + '  "characterSetUpper256":' + JSON.stringify(characterSetUpper256_enabled) + ",\n";
+                        bufStr = bufStr + '  "characterSetUpperLower256":' + JSON.stringify(characterSetUpperLower256_enabled) + ",\n";
+                        bufStr = bufStr + '  "characterSetExtendedGraphic64":' + JSON.stringify(characterSetExtendedGraphic64_enabled) + ",\n";
+                        bufStr = bufStr + '  "characterSetExtendedAlphaNum64":' + JSON.stringify(characterSetExtendedAlphaNum64_enabled) + ",\n";
+                        bufStr = bufStr + '  "characterSetCustom":' + JSON.stringify(characterSetCustom_enabled) + ",\n";
+                        bufStr = bufStr + '  "characterSetDirectory":' + JSON.stringify(characterSetDirectory_text) + ",\n";
+                        bufStr = bufStr + '  "characterSetSize":' + JSON.stringify(Number(characterSetSize_number)) + ",\n";
+
+                        bufStr = bufStr + '  "matchExactColorAlgorithm":' + JSON.stringify(matchExactColorAlgorithm_enabled) + ",\n";
+                        bufStr = bufStr + '  "minimizeColorDifferencesLinearAlgorithm":' + JSON.stringify(minimizeColorDifferencesLinearAlgorithm_enabled) + ",\n";
+                        bufStr = bufStr + '  "minimizeColorDifferencesExponentialAlgorithm":' + JSON.stringify(minimizeColorDifferencesExponentialAlgorithm_enabled) + ",\n";
+
+                        bufStr = bufStr + '  "blackAndWhiteDither":' + JSON.stringify(blackAndWhiteDither_enabled) + ",\n";
+                        bufStr = bufStr + '  "greyscaleConversion":' + JSON.stringify(greyscaleConversion_enabled) + ",\n";
+                        bufStr = bufStr + '  "imageNegative":' + JSON.stringify(imageNegative_enabled) + ",\n";
+                        bufStr = bufStr + '  "imageContrast":' + JSON.stringify(Number(imageContrast_number)) + ",\n";
+                        bufStr = bufStr + '  "imageBrightness":' + JSON.stringify(Number(imageBrightness_number)) + ",\n";
+
+                        bufStr = bufStr + '  "useGraphicsCharactersOnly":' + JSON.stringify(useGraphicsCharactersOnly_enabled) + ",\n";
+                        bufStr = bufStr + '  "colorSubstitutions":' + JSON.stringify(colorSubstitutions_text) + "\n";
+
+                        bufStr = bufStr + "}\n";
+                        blob = new Blob([bufStr], {type: "text/plain"});
+                    } else if (binaryCharactersOnlyOutput_enabled) {
                         // output format is binary stream of 1000 PETSCII character codes
                         if (vic2ExtendedMode_enabled) {
                             var extendedCharacterCodes = new Uint8Array(characterCodes.length);
@@ -378,11 +473,11 @@
                                 extendedCharacterCodes[i] = EncodeExtendedColorModeCharacter(characterCodes[i], backgroundColorIndex);
                             }
                             saveFields.push(extendedCharacterCodes);
-                            saveFields.push(GetUint8Array(characterForegroundColors));
+                            saveFields.push(GetUint8Array(processedCharacterForegroundColors));
                             blob = new Blob(saveFields, {type: "application/octet-stream"});
                         } else {
                             saveFields.push(characterCodes);
-                            saveFields.push(GetUint8Array(characterForegroundColors));
+                            saveFields.push(GetUint8Array(processedCharacterForegroundColors));
                             blob = new Blob(saveFields, {type: "application/octet-stream"});
                         }
                     } else if (cLanguageTextOutput_enabled) {
@@ -391,12 +486,15 @@
 
                         if (vic2ExtendedMode_enabled) {
                             bufStr = bufStr + "// border,bg,bg2,bg3,bg4,chars,colors\n" +
-                                              GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," +
-                                              GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1]) + "," + GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2]) + "," +
-                                              GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3]) + ",\n";
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1]), false, colorSubstitutions) + "," +
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2]), false, colorSubstitutions) + "," +
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3]), false, colorSubstitutions) + ",\n";
                         } else {
                             bufStr = bufStr + "// border,bg,chars,colors\n" +
-                                              GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + "," + GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]) + ",\n";
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
+                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + ",\n";
                         }
 
                         for (var i=0;i<characterCodes.length;i++) {
@@ -411,9 +509,9 @@
                             }
                         }
 
-                        for (var i=0; i<characterForegroundColors.length; i++) {
-                            bufStr = bufStr + characterForegroundColors[i];
-                            if ((i+1) < characterForegroundColors.length) { //skip comma on last array entry
+                        for (var i=0; i<processedCharacterForegroundColors.length; i++) {
+                            bufStr = bufStr + processedCharacterForegroundColors[i];
+                            if ((i+1) < processedCharacterForegroundColors.length) { //skip comma on last array entry
                                 bufStr = bufStr + ",";
                             }
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
@@ -453,11 +551,11 @@
                         }
 
                         bufStr = bufStr + "\n;screen color data\n";
-                        for (var i=0; i<characterForegroundColors.length; i++) {
+                        for (var i=0; i<processedCharacterForegroundColors.length; i++) {
                             if (i % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "!byte ";
                             }
-                            bufStr = bufStr + "$" + FormatStr(characterForegroundColors[i].toString(16), 2);
+                            bufStr = bufStr + "$" + FormatStr(processedCharacterForegroundColors[i].toString(16), 2);
                             if ((i+1) % (WIDTH/CWIDTH) == 0) {
                                 bufStr = bufStr + "\n";
                             } else {
@@ -506,9 +604,9 @@
                             saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
                             saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
                             saveFields.push(characterCodes);
-                            saveFields.push(characterForegroundColors);
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(processedCharacterForegroundColors);
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
                         } else if (characterSetUpperLower256_enabled) {
                             //refer to https://c64os.com/post/imageformats
                             //
@@ -531,9 +629,9 @@
                             saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
                             saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
                             saveFields.push(characterCodes);
-                            saveFields.push(characterForegroundColors);
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(processedCharacterForegroundColors);
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
                         } else if (characterSetCustom_enabled) {
                             //refer to https://c64os.com/post/imageformats
                             //
@@ -557,9 +655,9 @@
                             saveFields.push(GetUint8Array(PrepareTextField(artist_value, 17)));
                             saveFields.push(GetUint8Array(PrepareTextField(copyright_value, 17)));
                             saveFields.push(characterCodes);
-                            saveFields.push(characterForegroundColors);
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
-                            saveFields.push(GetUint8Array([characterBackgroundColors[0]]));
+                            saveFields.push(processedCharacterForegroundColors);
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
+                            saveFields.push(GetUint8Array([ProcessColorSubstitutions(characterBackgroundColors[0], false, colorSubstitutions)]));
                             saveFields.push(c64CustomCharacterSetBytes);
                         }
                         blob = new Blob(saveFields, {type: "application/octet-stream"});
@@ -573,376 +671,405 @@
                     window.URL.revokeObjectURL(url);
                 };
 			}());
-            
-            // read the value of the color switch and update the selected colors array accordingly
-            function ManageSelectedColorsSwitch(switchId, rgbColor, C64_SELECTED_RGB_COLORS) {
-                var color_switch = document.getElementById(switchId);
-                var color_enabled = color_switch.checked ? true:false;
+
+            // read the value of the color checkbox and update the selected colors array accordingly
+            function SetSelectedColorsCheckbox(checkboxId, rgbColor, C64_SELECTED_RGB_COLORS) {
+                var color_checkbox = document.getElementById(checkboxId);
+                var color_enabled = color_checkbox.checked ? true:false;
                 var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
-                if (color_enabled)
-                {
-                    if (color_index == -1)
-                    {
+                if (color_enabled) {
+                    if (color_index == -1) {
                         C64_SELECTED_RGB_COLORS.push(rgbColor);
                     }
                 }
             }
 
             // read the value of the color number and update the selected colors array accordingly
-            function ManageSelectedColorsNumber(numberId, C64_SELECTED_RGB_COLORS) {
+            function SetSelectedColorsNumber(numberId, C64_SELECTED_RGB_COLORS) {
                 var color_number = document.getElementById(numberId);
                 var colorCode = parseInt(color_number.value);
                 var rgbColor = GetRgbColor(colorCode);
                 var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
-                if (color_index == -1)
-                {
+                if (color_index == -1) {
                     C64_SELECTED_RGB_COLORS.push(rgbColor);
                 }
             }
 
-            // Set switch enable status
-            function ManageInputEnabled(switchId,enable) {
-                var switch_manage = document.getElementById(switchId);
-                switch_manage.disabled = enable ? false:true;
-            }
+            function UpdateOutputFileName(loadingNewFile) {
+                var projectJsonOutput_checkbox = document.getElementById('projectJsonOutput_checkbox');
+                var projectJsonOutput_checkbox_enabled = projectJsonOutput_checkbox.checked ? true:false;
 
-            // Set switch checked status
-            function ManageSwitchSelected(switchId,select) {
-                var switch_manage = document.getElementById(switchId);
-                switch_manage.checked = select ? true:false;
-            }
+                var binaryCharactersOnlyOutput_checkbox = document.getElementById('binaryCharactersOnlyOutput_checkbox');
+                var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_checkbox.checked ? true:false;
 
-            function UpdateOutputFileName(loadingNewFile)
-            {
-                var binaryCharactersOnlyOutput_switch = document.getElementById('binaryCharactersOnlyOutput_switch');
-                var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_switch.checked ? true:false;
+                var binaryCharactersAndColorsOutput_checkbox = document.getElementById('binaryCharactersAndColorsOutput_checkbox');
+                var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_checkbox.checked ? true:false;
 
-                var binaryCharactersAndColorsOutput_switch = document.getElementById('binaryCharactersAndColorsOutput_switch');
-                var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_switch.checked ? true:false;
+                var cLanguageTextOutput_checkbox = document.getElementById('cLanguageTextOutput_checkbox');
+                var cLanguageTextOutput_enabled = cLanguageTextOutput_checkbox.checked ? true:false;
 
-                var cLanguageTextOutput_switch = document.getElementById('cLanguageTextOutput_switch');
-                var cLanguageTextOutput_enabled = cLanguageTextOutput_switch.checked ? true:false;
+                var asmLanguageTextOutput_checkbox = document.getElementById('asmLanguageTextOutput_checkbox');
+                var asmLanguageTextOutput_enabled = asmLanguageTextOutput_checkbox.checked ? true:false;
 
-                var asmLanguageTextOutput_switch = document.getElementById('asmLanguageTextOutput_switch');
-                var asmLanguageTextOutput_enabled = asmLanguageTextOutput_switch.checked ? true:false;
+                var c64OsOutput_checkbox = document.getElementById('c64OsOutput_checkbox');
+                var c64OsOutput_enabled = c64OsOutput_checkbox.checked ? true:false;
 
-                var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
-                var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
-
-                var savePetscii_element = document.getElementById('savePetsciiFileName');
-                var savePetsciiFileName = savePetscii_element.value;
-                if ( (savePetsciiFileName.length == 0) || (loadingNewFile) )
-                {
-                    savePetsciiFileName = GetFileNameFromPath(document.getElementById('loadImageFileName_file').value);
+                var saveFileName_element = document.getElementById('saveFileName');
+                var saveFileName = saveFileName_element.value;
+                if ( (saveFileName.length == 0) || (loadingNewFile) ) {
+                    saveFileName = GetFileNameFromPath(document.getElementById('loadFileName_file').value);
                 }
-                if (savePetsciiFileName.length == 0)
-                {
-                    savePetsciiFileName = "petsciiart";
+                if (saveFileName.length == 0) {
+                    saveFileName = "petsciiart";
                 }
 
                 if (cLanguageTextOutput_enabled) {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".c"
+                    saveFileName_element.value = saveFileName.split('.')[0] + ".c"
                 } else if (asmLanguageTextOutput_enabled) {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".asm"
+                    saveFileName_element.value = saveFileName.split('.')[0] + ".asm"
                 } else if (binaryCharactersOnlyOutput_enabled) {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".pet"
+                    saveFileName_element.value = saveFileName.split('.')[0] + ".pet"
+                } else if (projectJsonOutput_checkbox_enabled) {
+                    saveFileName_element.value = saveFileName.split('.')[0] + ".project"
                 } else {
-                    savePetscii_element.value = savePetsciiFileName.split('.')[0] + ".bin"
+                    saveFileName_element.value = saveFileName.split('.')[0] + ".bin"
+                }
+            }
+
+            function Click_vic2StandardMode_checkbox() {
+                SetCheckboxSelected('vic2StandardMode_checkbox', true);
+                SetCheckboxSelected('vic2ExtendedMode_checkbox', false);
+                SetInputEnabled('backgroundColor2_number', false);
+                SetInputEnabled('backgroundColor3_number', false);
+                SetInputEnabled('backgroundColor4_number', false);
+
+                SetInputEnabled('characterSetExtendedGraphic64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', false);
+                SetInputEnabled('characterSetExtendedAlphaNum64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', false);
+
+                SetInputEnabled('characterSetUpper256_checkbox', true);
+                SetInputEnabled('characterSetUpperLower256_checkbox', true);
+                SetInputEnabled('c64OsOutput_checkbox', true);
+            }
+
+            function Click_vic2ExtendedMode_checkbox() {
+                SetCheckboxSelected('vic2StandardMode_checkbox', false);
+                SetCheckboxSelected('vic2ExtendedMode_checkbox', true);
+                SetInputEnabled('backgroundColor2_number', true);
+                SetInputEnabled('backgroundColor3_number', true);
+                SetInputEnabled('backgroundColor4_number', true);
+
+                SetInputEnabled('characterSetUpper256_checkbox', false);
+                SetCheckboxSelected('characterSetUpper256_checkbox', false);
+                SetInputEnabled('characterSetUpperLower256_checkbox', false);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', false);
+
+                SetInputEnabled('characterSetExtendedGraphic64_checkbox', true);
+                SetInputEnabled('characterSetExtendedAlphaNum64_checkbox', true);
+                SetInputEnabled('c64OsOutput_checkbox', false);
+                if (GetCheckboxSetting('c64OsOutput_checkbox')) {
+                    document.getElementById('cLanguageTextOutput_checkbox').click();
+                }
+                SetCheckboxSelected('c64OsOutput_checkbox', false);
+            }
+
+            function Click_characterSetUpper256_checkbox() {
+                SetCheckboxSelected('characterSetUpper256_checkbox', true);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', false);
+                SetCheckboxSelected('characterSetCustom_checkbox', false);
+                SetInputEnabled('characterSetDirectory_text', false);
+                SetInputEnabled('characterSetSize_number', false);
+                SetInputValue('characterSetDirectory_text', "standard256-upper");
+                SetInputValue('characterSetSize_number', 256);
+            }
+
+            function Click_characterSetUpperLower256_checkbox() {
+                SetCheckboxSelected('characterSetUpper256_checkbox', false);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', true);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', false);
+                SetCheckboxSelected('characterSetCustom_checkbox', false);
+                SetInputEnabled('characterSetDirectory_text', false);
+                SetInputEnabled('characterSetSize_number', false);
+                SetInputValue('characterSetDirectory_text', "standard256-upperlower");
+                SetInputValue('characterSetSize_number', 256);
+            }
+
+            function Click_characterSetExtendedGraphic64_checkbox() {
+                SetCheckboxSelected('characterSetUpper256_checkbox', false);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', true);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', false);
+                SetCheckboxSelected('characterSetCustom_checkbox', false);
+                SetInputEnabled('characterSetDirectory_text', false);
+                SetInputEnabled('characterSetSize_number', false);
+                SetInputValue('characterSetDirectory_text', "extended64-graphic");
+                SetInputValue('characterSetSize_number', 64);
+            }
+
+            function Click_characterSetExtendedAlphaNum64_checkbox() {
+                SetCheckboxSelected('characterSetUpper256_checkbox', false);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', true);
+                SetCheckboxSelected('characterSetCustom_checkbox', false);
+                SetInputEnabled('characterSetDirectory_text', false);
+                SetInputEnabled('characterSetSize_number', false);
+                SetInputValue('characterSetDirectory_text', "extended64-alphanum");
+                SetInputValue('characterSetSize_number', 64);
+            }
+
+            function Click_characterSetCustom_checkbox() {
+                SetCheckboxSelected('characterSetUpper256_checkbox', false);
+                SetCheckboxSelected('characterSetUpperLower256_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedGraphic64_checkbox', false);
+                SetCheckboxSelected('characterSetExtendedAlphaNum64_checkbox', false);
+                SetCheckboxSelected('characterSetCustom_checkbox', true);
+                SetInputEnabled('characterSetDirectory_text', true);
+                SetInputEnabled('characterSetSize_number', true);
+            }
+
+            function SetupMatchExactColorAlgorithm() {
+                var matchExactColorAlgorithm_checkbox = document.getElementById('matchExactColorAlgorithm_checkbox');
+                var matchExactColorAlgorithm_enabled = matchExactColorAlgorithm_checkbox.checked ? true:false;
+                if (matchExactColorAlgorithm_enabled) {
+                    SetInputEnabled('blackAndWhiteDither_checkbox', false);
+                    SetCheckboxSelected('blackAndWhiteDither_checkbox', true);
+                    SetupBlackAndWhiteDithering();
+
+                    SetInputEnabled('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetInputEnabled('colorWhite_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', true);
+                    SetInputEnabled('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetInputEnabled('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetInputEnabled('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetInputEnabled('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetInputEnabled('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetInputEnabled('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetInputEnabled('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetInputEnabled('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetInputEnabled('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetInputEnabled('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetInputEnabled('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetInputEnabled('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetInputEnabled('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetInputEnabled('colorLightGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
+
+                    SetInputEnabled('backgroundColor1_number', false);
+                    SetInputValue('backgroundColor1_number', 0);
+                } else {
+                    SetInputEnabled('blackAndWhiteDither_checkbox', true);
+
+                    SetInputEnabled('colorBlack_checkbox', true);
+                    SetInputEnabled('colorWhite_checkbox', true);
+                    SetInputEnabled('colorRed_checkbox', true);
+                    SetInputEnabled('colorCyan_checkbox', true);
+                    SetInputEnabled('colorPurple_checkbox', true);
+                    SetInputEnabled('colorGreen_checkbox', true);
+                    SetInputEnabled('colorBlue_checkbox', true);
+                    SetInputEnabled('colorYellow_checkbox', true);
+                    SetInputEnabled('colorOrange_checkbox', true);
+                    SetInputEnabled('colorBrown_checkbox', true);
+                    SetInputEnabled('colorLightRed_checkbox', true);
+                    SetInputEnabled('colorDarkGrey_checkbox', true);
+                    SetInputEnabled('colorGrey_checkbox', true);
+                    SetInputEnabled('colorLightGreen_checkbox', true);
+                    SetInputEnabled('colorLightBlue_checkbox', true);
+                    SetInputEnabled('colorLightGrey_checkbox', true);
+
+                    SetInputEnabled('backgroundColor1_number', true);
+                }
+            }
+
+            function Click_matchExactColorAlgorithm_checkbox() {
+                if (GetCheckboxSetting('matchExactColorAlgorithm_checkbox')) {
+                    SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                } else {
+                    SetCheckboxSelected('matchExactColorAlgorithm_checkbox', true);
+                }
+                SetupMatchExactColorAlgorithm();
+            }
+
+            function Click_minimizeColorDifferencesLinearAlgorithm_checkbox() {
+                if (GetCheckboxSetting('minimizeColorDifferencesLinearAlgorithm_checkbox')) {
+                    SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                } else {
+                    SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', true);
+                }
+                SetupMatchExactColorAlgorithm();
+            }
+
+            function Click_minimizeColorDifferencesExponentialAlgorithm_checkbox() {
+                if (GetCheckboxSetting('minimizeColorDifferencesExponentialAlgorithm_checkbox')) {
+                    SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
+                } else {
+                    SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', true);
+                }
+                SetupMatchExactColorAlgorithm();
+            }
+
+            function SetupBlackAndWhiteDithering() {
+                if (GetCheckboxSetting('blackAndWhiteDither_checkbox')) {
+                    // when dithering also perform greyscale conversion
+                    SetInputEnabled('greyscaleConversion_checkbox', false);
+                    SetCheckboxSelected('greyscaleConversion_checkbox', true);
+                } else {
+                    SetInputEnabled('greyscaleConversion_checkbox', true);
+                }
+            }
+
+            function Click_blackAndWhiteDither_checkbox() {
+                SetupBlackAndWhiteDithering();
+
+                if (GetCheckboxSetting('lockImage_checkbox')) {
+                    if (lockImage_enabled) {
+                        RenderWorkingImage();
+                        RenderPetsciiImage();
+                    }
+                }
+            }
+
+            function Click_greyscaleConversion_checkbox() {
+                if (GetCheckboxSetting('lockImage_checkbox')) {
+                    RenderWorkingImage();
+                    RenderPetsciiImage();
+                }
+            }
+
+            function Click_imageNegative_checkbox() {
+                if (GetCheckboxSetting('lockImage_checkbox')) {
+                    RenderWorkingImage();
+                    RenderPetsciiImage();
+                }
+            }
+
+            function Click_imageContrast_number() {
+                var imageContrast_number = document.getElementById('imageContrast_number');
+                if (imageContrast_number.value > 200) {
+                    imageContrast_number.value = 200;
+                }
+                if (imageContrast_number.value < -100) {
+                    imageContrast_number.value = -100;
+                }
+                var imageContrast_range = document.getElementById('imageContrast_range');
+                imageContrast_range.value = imageContrast_number.value;
+
+                if (GetCheckboxSetting('lockImage_checkbox')) {
+                    RenderWorkingImage();
+                    RenderPetsciiImage();
+                }
+            }
+
+            function Click_imageBrightness_number() {
+                var imageBrightness_number = document.getElementById('imageBrightness_number');
+                if (imageBrightness_number.value > 400) {
+                    imageBrightness_number.value = 400;
+                }
+                if (imageBrightness_number.value < -100) {
+                    imageBrightness_number.value = -100;
+                }
+                var imageBrightness_range = document.getElementById('imageBrightness_range');
+                imageBrightness_range.value = imageBrightness_number.value;
+
+                if (GetCheckboxSetting('lockImage_checkbox')) {
+                    RenderWorkingImage();
+                    RenderPetsciiImage();
                 }
             }
 
             function Init() {
-                document.getElementById('loadImageFile_button').onclick = function() {
-                    LoadImageFile(document.getElementById('loadImageFileName_file').value);
-                    UpdateOutputFileName(true);
+                document.getElementById('loadFile_button').onclick = function() {
+                    LoadFile(document.getElementById('loadFileName_file').value);
                 };
 
                 document.getElementById('renderWorkingImage_button').onclick = function() {
                     RenderWorkingImage();
 
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
+                    if (GetCheckboxSetting('lockImage_checkbox')) {
                         RenderPetsciiImage();
                     }
                 };
                 
-                function SetupMatchExactColorAlgorithm() {
-                    var matchExactColorAlgorithm_switch = document.getElementById('matchExactColorAlgorithm_switch');
-                    var matchExactColorAlgorithm_enabled = matchExactColorAlgorithm_switch.checked ? true:false;
-                    if (matchExactColorAlgorithm_enabled)
-                    {
-                        ManageInputEnabled('blackAndWhiteDither_switch', false);
-                        ManageSwitchSelected('blackAndWhiteDither_switch', true);
-                        SetupBlackAndWhiteDithering();
-
-                        ManageInputEnabled('colorBlack_switch', false);
-                        ManageSwitchSelected('colorBlack_switch', false);
-                        ManageInputEnabled('colorWhite_switch', false);
-                        ManageSwitchSelected('colorWhite_switch', true);
-                        ManageInputEnabled('colorRed_switch', false);
-                        ManageSwitchSelected('colorRed_switch', false);
-                        ManageInputEnabled('colorCyan_switch', false);
-                        ManageSwitchSelected('colorCyan_switch', false);
-                        ManageInputEnabled('colorPurple_switch', false);
-                        ManageSwitchSelected('colorPurple_switch', false);
-                        ManageInputEnabled('colorGreen_switch', false);
-                        ManageSwitchSelected('colorGreen_switch', false);
-                        ManageInputEnabled('colorBlue_switch', false);
-                        ManageSwitchSelected('colorBlue_switch', false);
-                        ManageInputEnabled('colorYellow_switch', false);
-                        ManageSwitchSelected('colorYellow_switch', false);
-                        ManageInputEnabled('colorOrange_switch', false);
-                        ManageSwitchSelected('colorOrange_switch', false);
-                        ManageInputEnabled('colorBrown_switch', false);
-                        ManageSwitchSelected('colorBrown_switch', false);
-                        ManageInputEnabled('colorLightRed_switch', false);
-                        ManageSwitchSelected('colorLightRed_switch', false);
-                        ManageInputEnabled('colorDarkGrey_switch', false);
-                        ManageSwitchSelected('colorDarkGrey_switch', false);
-                        ManageInputEnabled('colorGrey_switch', false);
-                        ManageSwitchSelected('colorGrey_switch', false);
-                        ManageInputEnabled('colorLightGreen_switch', false);
-                        ManageSwitchSelected('colorLightGreen_switch', false);
-                        ManageInputEnabled('colorLightBlue_switch', false);
-                        ManageSwitchSelected('colorLightBlue_switch', false);
-                        ManageInputEnabled('colorLightGrey_switch', false);
-                        ManageSwitchSelected('colorLightGrey_switch', false);
-
-                        ManageInputEnabled('backgroundColor1_number', false);
-                        var backgroundColor1_number = document.getElementById('backgroundColor1_number');
-                        backgroundColor1_number.value = 0;
-                    } else {
-                        ManageInputEnabled('blackAndWhiteDither_switch', true);
-
-                        ManageInputEnabled('colorBlack_switch', true);
-                        ManageInputEnabled('colorWhite_switch', true);
-                        ManageInputEnabled('colorRed_switch', true);
-                        ManageInputEnabled('colorCyan_switch', true);
-                        ManageInputEnabled('colorPurple_switch', true);
-                        ManageInputEnabled('colorGreen_switch', true);
-                        ManageInputEnabled('colorBlue_switch', true);
-                        ManageInputEnabled('colorYellow_switch', true);
-                        ManageInputEnabled('colorOrange_switch', true);
-                        ManageInputEnabled('colorBrown_switch', true);
-                        ManageInputEnabled('colorLightRed_switch', true);
-                        ManageInputEnabled('colorDarkGrey_switch', true);
-                        ManageInputEnabled('colorGrey_switch', true);
-                        ManageInputEnabled('colorLightGreen_switch', true);
-                        ManageInputEnabled('colorLightBlue_switch', true);
-                        ManageInputEnabled('colorLightGrey_switch', true);
-
-                        ManageInputEnabled('backgroundColor1_number', true);
-                    }
-                }
-
-                document.getElementById('matchExactColorAlgorithm_switch').onclick = function() {
-                    var matchExactColorAlgorithm_switch = document.getElementById('matchExactColorAlgorithm_switch');
-                    var matchExactColorAlgorithm_switch_enabled = matchExactColorAlgorithm_switch.checked ? true:false;
-                    if (matchExactColorAlgorithm_switch_enabled) {
-                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', false);
-                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', false);
-                    } else {
-                        ManageSwitchSelected('matchExactColorAlgorithm_switch', true);
-                    }
-                    SetupMatchExactColorAlgorithm();
-                };
-
-                document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch').onclick = function() {
-                    var minimizeColorDifferencesLinearAlgorithm_switch = document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch');
-                    var minimizeColorDifferencesLinearAlgorithm_enabled = minimizeColorDifferencesLinearAlgorithm_switch.checked ? true:false;
-                    if (minimizeColorDifferencesLinearAlgorithm_enabled) {
-                        ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
-                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', false);
-                    } else {
-                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', true);
-                    }
-                    SetupMatchExactColorAlgorithm();
-                };
-
-                document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch').onclick = function() {
-                    var minimizeColorDifferencesExponentialAlgorithm_switch = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch');
-                    var minimizeColorDifferencesExponentialAlgorithm_enabled = minimizeColorDifferencesExponentialAlgorithm_switch.checked ? true:false;
-                    if (minimizeColorDifferencesExponentialAlgorithm_enabled) {
-                        ManageSwitchSelected('matchExactColorAlgorithm_switch', false);
-                        ManageSwitchSelected('minimizeColorDifferencesLinearAlgorithm_switch', false);
-                    } else {
-                        ManageSwitchSelected('minimizeColorDifferencesExponentialAlgorithm_switch', true);
-                    }
-                    SetupMatchExactColorAlgorithm();
-                };
-
-                function SetupBlackAndWhiteDithering()
-                {
-                    var blackAndWhiteDither_switch = document.getElementById('blackAndWhiteDither_switch');
-                    var blackAndWhiteDither_enabled = blackAndWhiteDither_switch.checked ? true:false;
-                    if (blackAndWhiteDither_enabled)
-                    {
-                        // when dithering also perform greyscale conversion
-                        ManageInputEnabled('greyscaleConversion_switch', false);
-                        ManageSwitchSelected('greyscaleConversion_switch', true);
-                    } else {
-                        ManageInputEnabled('greyscaleConversion_switch', true);
-                    }
-                }
-
-                document.getElementById('blackAndWhiteDither_switch').onclick = function() {
-                    SetupBlackAndWhiteDithering();
-
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
-
-                document.getElementById('greyscaleConversion_switch').onclick = function() {
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
-
-                document.getElementById('imageNegative_switch').onclick = function() {
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
+                document.getElementById('matchExactColorAlgorithm_checkbox').onclick = function(){Click_matchExactColorAlgorithm_checkbox()};
+                document.getElementById('minimizeColorDifferencesLinearAlgorithm_checkbox').onclick = function(){Click_minimizeColorDifferencesLinearAlgorithm_checkbox()};
+                document.getElementById('minimizeColorDifferencesExponentialAlgorithm_checkbox').onclick = function(){Click_minimizeColorDifferencesExponentialAlgorithm_checkbox()};
+                document.getElementById('blackAndWhiteDither_checkbox').onclick = function(){Click_blackAndWhiteDither_checkbox()};
+                document.getElementById('greyscaleConversion_checkbox').onclick = function(){Click_greyscaleConversion_checkbox()};
+                document.getElementById('imageNegative_checkbox').onclick = function(){Click_imageNegative_checkbox()};
 
                 document.getElementById('imageContrast_range').onclick = function() {
                     var imageContrast_range = document.getElementById('imageContrast_range');
                     var imageContrast_number = document.getElementById('imageContrast_number');
                     imageContrast_number.value = imageContrast_range.value;
 
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
+                    if (GetCheckboxSetting('lockImage_checkbox')) {
                         RenderWorkingImage();
                         RenderPetsciiImage();
                     }
-                }
+                };
 
-                document.getElementById('imageContrast_number').onchange = function() {
-                    var imageContrast_number = document.getElementById('imageContrast_number');
-                    if (imageContrast_number.value > 200) {
-                        imageContrast_number.value = 200;
-                    }
-                    if (imageContrast_number.value < -100) {
-                        imageContrast_number.value = -100;
-                    }
-                    var imageContrast_range = document.getElementById('imageContrast_range');
-                    imageContrast_range.value = imageContrast_number.value;
-
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
+                document.getElementById('imageContrast_number').onchange = function(){Click_imageContrast_number()};
 
                 document.getElementById('imageBrightness_range').onclick = function() {
                     var imageBrightness_range = document.getElementById('imageBrightness_range');
                     var imageBrightness_number = document.getElementById('imageBrightness_number');
                     imageBrightness_number.value = imageBrightness_range.value;
 
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
+                    if (GetCheckboxSetting('lockImage_checkbox')) {
                         RenderWorkingImage();
                         RenderPetsciiImage();
                     }
-                }
+                };
 
-                document.getElementById('imageBrightness_number').onchange = function() {
-                    var imageBrightness_number = document.getElementById('imageBrightness_number');
-                    if (imageBrightness_number.value > 400) {
-                        imageBrightness_number.value = 400;
-                    }
-                    if (imageBrightness_number.value < -100) {
-                        imageBrightness_number.value = -100;
-                    }
-                    var imageBrightness_range = document.getElementById('imageBrightness_range');
-                    imageBrightness_range.value = imageBrightness_number.value;
-
-                    var lockImage_switch = document.getElementById('lockImage_switch');
-                    var lockImage_enabled = lockImage_switch.checked ? true:false;
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
-
-                document.getElementById('vic2StandardMode_switch').onclick = function() {
-                    ManageSwitchSelected('vic2StandardMode_switch', true);
-                    ManageSwitchSelected('vic2ExtendedMode_switch', false);
-                    ManageInputEnabled('backgroundColor2_number', false);
-                    ManageInputEnabled('backgroundColor3_number', false);
-                    ManageInputEnabled('backgroundColor4_number', false);
-
-                    ManageInputEnabled('characterSetExtendedGraphic64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
-                    ManageInputEnabled('characterSetExtendedAlphaNum64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
-
-                    ManageInputEnabled('characterSetUpper256_switch', true);
-                    ManageInputEnabled('characterSetUpperLower256_switch', true);
-                    ManageInputEnabled('c64OsOutput_switch', true);
-                }
-
-                document.getElementById('vic2ExtendedMode_switch').onclick = function() {
-                    ManageSwitchSelected('vic2StandardMode_switch', false);
-                    ManageSwitchSelected('vic2ExtendedMode_switch', true);
-                    ManageInputEnabled('backgroundColor2_number', true);
-                    ManageInputEnabled('backgroundColor3_number', true);
-                    ManageInputEnabled('backgroundColor4_number', true);
-
-                    ManageInputEnabled('characterSetUpper256_switch', false);
-                    ManageSwitchSelected('characterSetUpper256_switch', false);
-                    ManageInputEnabled('characterSetUpperLower256_switch', false);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
-
-                    ManageInputEnabled('characterSetExtendedGraphic64_switch', true);
-                    ManageInputEnabled('characterSetExtendedAlphaNum64_switch', true);
-                    ManageInputEnabled('c64OsOutput_switch', false);
-                    var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
-                    var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
-                    if (c64OsOutput_enabled) {
-                        document.getElementById('cLanguageTextOutput_switch').click();
-                    }
-                    ManageSwitchSelected('c64OsOutput_switch', false);
-                }
+                document.getElementById('imageBrightness_number').onchange = function(){Click_imageBrightness_number()};
+                document.getElementById('vic2StandardMode_checkbox').onclick = function(){Click_vic2StandardMode_checkbox()};
+                document.getElementById('vic2ExtendedMode_checkbox').onclick = function(){Click_vic2ExtendedMode_checkbox()};
 
                 document.getElementById('colorPresetBlackAndWhite_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', false);
-                    ManageSwitchSelected('colorWhite_switch', true);
-                    ManageSwitchSelected('colorRed_switch', false);
-                    ManageSwitchSelected('colorCyan_switch', false);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', false);
-                    ManageSwitchSelected('colorBlue_switch', false);
-                    ManageSwitchSelected('colorYellow_switch', false);
-                    ManageSwitchSelected('colorOrange_switch', false);
-                    ManageSwitchSelected('colorBrown_switch', false);
-                    ManageSwitchSelected('colorLightRed_switch', false);
-                    ManageSwitchSelected('colorDarkGrey_switch', false);
-                    ManageSwitchSelected('colorGrey_switch', false);
-                    ManageSwitchSelected('colorLightGreen_switch', false);
-                    ManageSwitchSelected('colorLightBlue_switch', false);
-                    ManageSwitchSelected('colorLightGrey_switch', false);
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', true);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 0;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
-                        ManageSwitchSelected('colorBlack_switch', true);
+                        SetCheckboxSelected('colorBlack_checkbox', true);
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 1;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
@@ -953,27 +1080,27 @@
                 }
 
                 document.getElementById('colorPresetGreyscale_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', true);
-                    ManageSwitchSelected('colorWhite_switch', true);
-                    ManageSwitchSelected('colorRed_switch', false);
-                    ManageSwitchSelected('colorCyan_switch', false);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', false);
-                    ManageSwitchSelected('colorBlue_switch', false);
-                    ManageSwitchSelected('colorYellow_switch', false);
-                    ManageSwitchSelected('colorOrange_switch', false);
-                    ManageSwitchSelected('colorBrown_switch', false);
-                    ManageSwitchSelected('colorLightRed_switch', false);
-                    ManageSwitchSelected('colorDarkGrey_switch', true);
-                    ManageSwitchSelected('colorGrey_switch', true);
-                    ManageSwitchSelected('colorLightGreen_switch', false);
-                    ManageSwitchSelected('colorLightBlue_switch', false);
-                    ManageSwitchSelected('colorLightGrey_switch', true);
+                    SetCheckboxSelected('colorBlack_checkbox', true);
+                    SetCheckboxSelected('colorWhite_checkbox', true);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', true);
+                    SetCheckboxSelected('colorGrey_checkbox', true);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', true);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 12;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 11;
@@ -985,27 +1112,27 @@
                 }
 
                 document.getElementById('colorPresetBlues_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', false);
-                    ManageSwitchSelected('colorWhite_switch', true);
-                    ManageSwitchSelected('colorRed_switch', false);
-                    ManageSwitchSelected('colorCyan_switch', true);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', false);
-                    ManageSwitchSelected('colorBlue_switch', true);
-                    ManageSwitchSelected('colorYellow_switch', false);
-                    ManageSwitchSelected('colorOrange_switch', false);
-                    ManageSwitchSelected('colorBrown_switch', false);
-                    ManageSwitchSelected('colorLightRed_switch', false);
-                    ManageSwitchSelected('colorDarkGrey_switch', false);
-                    ManageSwitchSelected('colorGrey_switch', false);
-                    ManageSwitchSelected('colorLightGreen_switch', false);
-                    ManageSwitchSelected('colorLightBlue_switch', true);
-                    ManageSwitchSelected('colorLightGrey_switch', false);
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', true);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', true);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', true);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', true);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 3;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 6;
@@ -1014,30 +1141,30 @@
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
                         backgroundColor4_number.value = 1;
                     }
-                }
+                };
 
                 document.getElementById('colorPresetBrowns_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', true);
-                    ManageSwitchSelected('colorWhite_switch', false);
-                    ManageSwitchSelected('colorRed_switch', false);
-                    ManageSwitchSelected('colorCyan_switch', false);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', false);
-                    ManageSwitchSelected('colorBlue_switch', false);
-                    ManageSwitchSelected('colorYellow_switch', false);
-                    ManageSwitchSelected('colorOrange_switch', true);
-                    ManageSwitchSelected('colorBrown_switch', true);
-                    ManageSwitchSelected('colorLightRed_switch', false);
-                    ManageSwitchSelected('colorDarkGrey_switch', true);
-                    ManageSwitchSelected('colorGrey_switch', false);
-                    ManageSwitchSelected('colorLightGreen_switch', false);
-                    ManageSwitchSelected('colorLightBlue_switch', false);
-                    ManageSwitchSelected('colorLightGrey_switch', false);
+                    SetCheckboxSelected('colorBlack_checkbox', true);
+                    SetCheckboxSelected('colorWhite_checkbox', false);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', true);
+                    SetCheckboxSelected('colorBrown_checkbox', true);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', true);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 9;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 8;
@@ -1046,30 +1173,30 @@
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
                         backgroundColor4_number.value = 0;
                     }
-                }
+                };
 
                 document.getElementById('colorPresetReds_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', false);
-                    ManageSwitchSelected('colorWhite_switch', false);
-                    ManageSwitchSelected('colorRed_switch', true);
-                    ManageSwitchSelected('colorCyan_switch', false);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', false);
-                    ManageSwitchSelected('colorBlue_switch', false);
-                    ManageSwitchSelected('colorYellow_switch', false);
-                    ManageSwitchSelected('colorOrange_switch', true);
-                    ManageSwitchSelected('colorBrown_switch', true);
-                    ManageSwitchSelected('colorLightRed_switch', true);
-                    ManageSwitchSelected('colorDarkGrey_switch', false);
-                    ManageSwitchSelected('colorGrey_switch', false);
-                    ManageSwitchSelected('colorLightGreen_switch', false);
-                    ManageSwitchSelected('colorLightBlue_switch', false);
-                    ManageSwitchSelected('colorLightGrey_switch', false);
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', false);
+                    SetCheckboxSelected('colorRed_checkbox', true);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', true);
+                    SetCheckboxSelected('colorBrown_checkbox', true);
+                    SetCheckboxSelected('colorLightRed_checkbox', true);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 2;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 9;
@@ -1078,30 +1205,30 @@
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
                         backgroundColor4_number.value = 10;
                     }
-                }
+                };
 
                 document.getElementById('colorPresetGreens_button').onclick = function() {
-                    ManageSwitchSelected('colorBlack_switch', false);
-                    ManageSwitchSelected('colorWhite_switch', false);
-                    ManageSwitchSelected('colorRed_switch', false);
-                    ManageSwitchSelected('colorCyan_switch', true);
-                    ManageSwitchSelected('colorPurple_switch', false);
-                    ManageSwitchSelected('colorGreen_switch', true);
-                    ManageSwitchSelected('colorBlue_switch', false);
-                    ManageSwitchSelected('colorYellow_switch', true);
-                    ManageSwitchSelected('colorOrange_switch', false);
-                    ManageSwitchSelected('colorBrown_switch', false);
-                    ManageSwitchSelected('colorLightRed_switch', false);
-                    ManageSwitchSelected('colorDarkGrey_switch', false);
-                    ManageSwitchSelected('colorGrey_switch', false);
-                    ManageSwitchSelected('colorLightGreen_switch', true);
-                    ManageSwitchSelected('colorLightBlue_switch', false);
-                    ManageSwitchSelected('colorLightGrey_switch', false);
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', false);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', true);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', true);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', true);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', true);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
 
                     var backgroundColor1_number = document.getElementById('backgroundColor1_number');
                     backgroundColor1_number.value = 5;
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 13;
@@ -1110,99 +1237,35 @@
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
                         backgroundColor4_number.value = 7;
                     }
-                }
-
-                document.getElementById('characterSetUpper256_switch').onclick = function() {
-                    ManageSwitchSelected('characterSetUpper256_switch', true);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
-                    ManageSwitchSelected('characterSetCustom_switch', false);
-                    ManageInputEnabled('characterSetDirectory_text', false);
-                    ManageInputEnabled('characterSetSize_number', false);
-
-                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
-                    characterSetDirectory_text.value = "standard256-upper";
-                    var characterSetSize_number = document.getElementById('characterSetSize_number');
-                    characterSetSize_number.value = "256";
                 };
 
-                document.getElementById('characterSetUpperLower256_switch').onclick = function() {
-                    ManageSwitchSelected('characterSetUpper256_switch', false);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', true);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
-                    ManageSwitchSelected('characterSetCustom_switch', false);
-                    ManageInputEnabled('characterSetDirectory_text', false);
-                    ManageInputEnabled('characterSetSize_number', false);
-
-                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
-                    characterSetDirectory_text.value = "standard256-upperlower";
-                    var characterSetSize_number = document.getElementById('characterSetSize_number');
-                    characterSetSize_number.value = "256";
-                };
-
-                document.getElementById('characterSetExtendedGraphic64_switch').onclick = function() {
-                    ManageSwitchSelected('characterSetUpper256_switch', false);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', true);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
-                    ManageSwitchSelected('characterSetCustom_switch', false);
-                    ManageInputEnabled('characterSetDirectory_text', false);
-                    ManageInputEnabled('characterSetSize_number', false);
-
-                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
-                    characterSetDirectory_text.value = "extended64-graphic";
-                    var characterSetSize_number = document.getElementById('characterSetSize_number');
-                    characterSetSize_number.value = "64";
-                };
-
-                document.getElementById('characterSetExtendedAlphaNum64_switch').onclick = function() {
-                    ManageSwitchSelected('characterSetUpper256_switch', false);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', true);
-                    ManageSwitchSelected('characterSetCustom_switch', false);
-                    ManageInputEnabled('characterSetDirectory_text', false);
-                    ManageInputEnabled('characterSetSize_number', false);
-
-                    var characterSetDirectory_text = document.getElementById('characterSetDirectory_text');
-                    characterSetDirectory_text.value = "extended64-alphanum";
-                    var characterSetSize_number = document.getElementById('characterSetSize_number');
-                    characterSetSize_number.value = "64";
-                };
-
-                document.getElementById('characterSetCustom_switch').onclick = function() {
-                    ManageSwitchSelected('characterSetUpper256_switch', false);
-                    ManageSwitchSelected('characterSetUpperLower256_switch', false);
-                    ManageSwitchSelected('characterSetExtendedGraphic64_switch', false);
-                    ManageSwitchSelected('characterSetExtendedAlphaNum64_switch', false);
-                    ManageSwitchSelected('characterSetCustom_switch', true);
-                    ManageInputEnabled('characterSetDirectory_text', true);
-                    ManageInputEnabled('characterSetSize_number', true);
-                };
+                document.getElementById('characterSetUpper256_checkbox').onclick = function(){Click_characterSetUpper256_checkbox()};
+                document.getElementById('characterSetUpperLower256_checkbox').onclick = function(){Click_characterSetUpperLower256_checkbox()};
+                document.getElementById('characterSetExtendedGraphic64_checkbox').onclick = function(){Click_characterSetExtendedGraphic64_checkbox()};
+                document.getElementById('characterSetExtendedAlphaNum64_checkbox').onclick = function(){Click_characterSetExtendedAlphaNum64_checkbox()};
+                document.getElementById('characterSetCustom_checkbox').onclick = function(){Click_characterSetCustom_checkbox()};
 
                 document.getElementById('renderCharacterSets_button').onclick = function() {
                     C64_SELECTED_FOREGROUND_RGB_COLORS = [];
-                    ManageSelectedColorsSwitch('colorBlack_switch', C64_RGB_COLOR_BLACK, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorWhite_switch',  C64_RGB_COLOR_WHITE, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorRed_switch', C64_RGB_COLOR_RED, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorCyan_switch', C64_RGB_COLOR_CYAN, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorPurple_switch', C64_RGB_COLOR_PURPLE, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorGreen_switch', C64_RGB_COLOR_GREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorBlue_switch', C64_RGB_COLOR_BLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorYellow_switch', C64_RGB_COLOR_YELLOW, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorOrange_switch', C64_RGB_COLOR_ORANGE, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorBrown_switch', C64_RGB_COLOR_BROWN, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorLightRed_switch', C64_RGB_COLOR_LIGHTRED, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorDarkGrey_switch', C64_RGB_COLOR_DARKGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorGrey_switch', C64_RGB_COLOR_GREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorLightGreen_switch', C64_RGB_COLOR_LIGHTGREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorLightBlue_switch', C64_RGB_COLOR_LIGHTBLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
-                    ManageSelectedColorsSwitch('colorLightGrey_switch', C64_RGB_COLOR_LIGHTGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorBlack_checkbox', C64_RGB_COLOR_BLACK, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorWhite_checkbox',  C64_RGB_COLOR_WHITE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorRed_checkbox', C64_RGB_COLOR_RED, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorCyan_checkbox', C64_RGB_COLOR_CYAN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorPurple_checkbox', C64_RGB_COLOR_PURPLE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorGreen_checkbox', C64_RGB_COLOR_GREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorBlue_checkbox', C64_RGB_COLOR_BLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorYellow_checkbox', C64_RGB_COLOR_YELLOW, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorOrange_checkbox', C64_RGB_COLOR_ORANGE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorBrown_checkbox', C64_RGB_COLOR_BROWN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorLightRed_checkbox', C64_RGB_COLOR_LIGHTRED, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorDarkGrey_checkbox', C64_RGB_COLOR_DARKGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorGrey_checkbox', C64_RGB_COLOR_GREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorLightGreen_checkbox', C64_RGB_COLOR_LIGHTGREEN, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorLightBlue_checkbox', C64_RGB_COLOR_LIGHTBLUE, C64_SELECTED_FOREGROUND_RGB_COLORS);
+                    SetSelectedColorsCheckbox('colorLightGrey_checkbox', C64_RGB_COLOR_LIGHTGREY, C64_SELECTED_FOREGROUND_RGB_COLORS);
 
                     C64_SELECTED_BACKGROUND_RGB_COLORS = [];
-                    ManageSelectedColorsNumber('backgroundColor1_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                    SetSelectedColorsNumber('backgroundColor1_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
 
                     // The C64 standard character mode limits accuracy of color
                     // transitions because the background color is always set to a
@@ -1217,101 +1280,122 @@
                     // would then be supported per character. In standard character mode
                     // using monochrome (i.e. a single foreground color) will result in
                     // the most accurate transitions to/from the background color.
-                    var vic2ExtendedMode_switch = document.getElementById('vic2ExtendedMode_switch');
-                    var vic2ExtendedMode_enabled = vic2ExtendedMode_switch.checked;
+                    var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
+                    var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
-                        ManageSelectedColorsNumber('backgroundColor2_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
-                        ManageSelectedColorsNumber('backgroundColor3_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
-                        ManageSelectedColorsNumber('backgroundColor4_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                        SetSelectedColorsNumber('backgroundColor2_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                        SetSelectedColorsNumber('backgroundColor3_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
+                        SetSelectedColorsNumber('backgroundColor4_number', C64_SELECTED_BACKGROUND_RGB_COLORS);
                     }
 
                     RenderCharacterSets();
-                }
+                };
 
                 document.getElementById('renderPetscii_button').onclick = function() {
                     RenderPetsciiImage();
                 };
 
-                document.getElementById('savePetsciiFile_button').onclick = function() {
-                    var binaryCharactersOnlyOutput_switch = document.getElementById('binaryCharactersOnlyOutput_switch');
-                    var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_switch.checked ? true:false;
+                document.getElementById('saveFile_button').onclick = function() {
+                    var projectJsonOutput_checkbox = document.getElementById('projectJsonOutput_checkbox');
+                    var projectJsonOutput_checkbox_enabled = projectJsonOutput_checkbox.checked ? true:false;
 
-                    var binaryCharactersAndColorsOutput_switch = document.getElementById('binaryCharactersAndColorsOutput_switch');
-                    var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_switch.checked ? true:false;
+                    var binaryCharactersOnlyOutput_checkbox = document.getElementById('binaryCharactersOnlyOutput_checkbox');
+                    var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_checkbox.checked ? true:false;
 
-                    var cLanguageTextOutput_switch = document.getElementById('cLanguageTextOutput_switch');
-                    var cLanguageTextOutput_enabled = cLanguageTextOutput_switch.checked ? true:false;
+                    var binaryCharactersAndColorsOutput_checkbox = document.getElementById('binaryCharactersAndColorsOutput_checkbox');
+                    var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_checkbox.checked ? true:false;
 
-                    var asmLanguageTextOutput_switch = document.getElementById('asmLanguageTextOutput_switch');
-                    var asmLanguageTextOutput_enabled = asmLanguageTextOutput_switch.checked ? true:false;
+                    var cLanguageTextOutput_checkbox = document.getElementById('cLanguageTextOutput_checkbox');
+                    var cLanguageTextOutput_enabled = cLanguageTextOutput_checkbox.checked ? true:false;
 
-                    var c64OsOutput_switch = document.getElementById('c64OsOutput_switch');
-                    var c64OsOutput_enabled = c64OsOutput_switch.checked ? true:false;
+                    var asmLanguageTextOutput_checkbox = document.getElementById('asmLanguageTextOutput_checkbox');
+                    var asmLanguageTextOutput_enabled = asmLanguageTextOutput_checkbox.checked ? true:false;
 
-                    var inputFileName_file = document.getElementById('loadImageFileName_file');
+                    var c64OsOutput_checkbox = document.getElementById('c64OsOutput_checkbox');
+                    var c64OsOutput_enabled = c64OsOutput_checkbox.checked ? true:false;
+
+                    var inputFileName_file = document.getElementById('loadFileName_file');
                     var inputFileName = inputFileName_file.value.split('\\').pop().split('/').pop();
-                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('savePetsciiFileName').value,
-                                  binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled);
+                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('saveFileName').value,
+                                  projectJsonOutput_checkbox_enabled, binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled);
                 };
 
-                document.getElementById('binaryCharactersOnlyOutput_switch').onclick = function() {
-                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', true);
-                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
-                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('c64OsOutput_switch', false);
+                document.getElementById('projectJsonOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', true);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', false);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('c64OsOutput_checkbox', false);
                     UpdateOutputFileName(false);
-                    ManageInputEnabled('c64OsOutputTitle_text', false);
-                    ManageInputEnabled('c64OsOutputArtist_text', false);
-                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                    SetInputEnabled('c64OsOutputTitle_text', false);
+                    SetInputEnabled('c64OsOutputArtist_text', false);
+                    SetInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
-                document.getElementById('binaryCharactersAndColorsOutput_switch').onclick = function() {
-                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
-                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', true);
-                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('c64OsOutput_switch', false);
+                document.getElementById('binaryCharactersOnlyOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', true);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', false);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('c64OsOutput_checkbox', false);
                     UpdateOutputFileName(false);
-                    ManageInputEnabled('c64OsOutputTitle_text', false);
-                    ManageInputEnabled('c64OsOutputArtist_text', false);
-                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                    SetInputEnabled('c64OsOutputTitle_text', false);
+                    SetInputEnabled('c64OsOutputArtist_text', false);
+                    SetInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
-                document.getElementById('cLanguageTextOutput_switch').onclick = function() {
-                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
-                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
-                    ManageSwitchSelected('cLanguageTextOutput_switch', true);
-                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('c64OsOutput_switch', false);
+                document.getElementById('binaryCharactersAndColorsOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', true);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('c64OsOutput_checkbox', false);
                     UpdateOutputFileName(false);
-                    ManageInputEnabled('c64OsOutputTitle_text', false);
-                    ManageInputEnabled('c64OsOutputArtist_text', false);
-                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                    SetInputEnabled('c64OsOutputTitle_text', false);
+                    SetInputEnabled('c64OsOutputArtist_text', false);
+                    SetInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
-                document.getElementById('asmLanguageTextOutput_switch').onclick = function() {
-                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
-                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
-                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('asmLanguageTextOutput_switch', true);
-                    ManageSwitchSelected('c64OsOutput_switch', false);
+                document.getElementById('cLanguageTextOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', false);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', true);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('c64OsOutput_checkbox', false);
                     UpdateOutputFileName(false);
-                    ManageInputEnabled('c64OsOutputTitle_text', false);
-                    ManageInputEnabled('c64OsOutputArtist_text', false);
-                    ManageInputEnabled('c64OsOutputCopyright_text', false);
+                    SetInputEnabled('c64OsOutputTitle_text', false);
+                    SetInputEnabled('c64OsOutputArtist_text', false);
+                    SetInputEnabled('c64OsOutputCopyright_text', false);
                 };
 
-                document.getElementById('c64OsOutput_switch').onclick = function() {
-                    ManageSwitchSelected('binaryCharactersOnlyOutput_switch', false);
-                    ManageSwitchSelected('binaryCharactersAndColorsOutput_switch', false);
-                    ManageSwitchSelected('cLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('asmLanguageTextOutput_switch', false);
-                    ManageSwitchSelected('c64OsOutput_switch', true);
+                document.getElementById('asmLanguageTextOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', false);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', true);
+                    SetCheckboxSelected('c64OsOutput_checkbox', false);
                     UpdateOutputFileName(false);
-                    ManageInputEnabled('c64OsOutputTitle_text', true);
-                    ManageInputEnabled('c64OsOutputArtist_text', true);
-                    ManageInputEnabled('c64OsOutputCopyright_text', true);
+                    SetInputEnabled('c64OsOutputTitle_text', false);
+                    SetInputEnabled('c64OsOutputArtist_text', false);
+                    SetInputEnabled('c64OsOutputCopyright_text', false);
+                };
+
+                document.getElementById('c64OsOutput_checkbox').onclick = function() {
+                    SetCheckboxSelected('projectJsonOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersOnlyOutput_checkbox', false);
+                    SetCheckboxSelected('binaryCharactersAndColorsOutput_checkbox', false);
+                    SetCheckboxSelected('cLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('asmLanguageTextOutput_checkbox', false);
+                    SetCheckboxSelected('c64OsOutput_checkbox', true);
+                    UpdateOutputFileName(false);
+                    SetInputEnabled('c64OsOutputTitle_text', true);
+                    SetInputEnabled('c64OsOutputArtist_text', true);
+                    SetInputEnabled('c64OsOutputCopyright_text', true);
                 };
             }
 
@@ -1325,8 +1409,18 @@
                 return fileName;
             }
 
-            function LoadImageFile(inputFilePath) {
+            function LoadFile(inputFilePath) {
                 var inputFileName = GetFileNameFromPath(inputFilePath);
+                var fileSplits = inputFileName.split('.');
+                var fileExtension = fileSplits[fileSplits.length-1];
+                if (fileExtension == "project") {
+                    LoadProjectFile("Sample Images/" + inputFileName);
+                } else {
+                    LoadImageFile(inputFileName);
+                }
+            }
+
+            function LoadImageFile(inputFileName) {
                 var sourceImage = document.getElementById('sourceImage');
                 sourceImage.src = "Sample Images/" + inputFileName;
                 //sourceImage.crossOrigin = null;
@@ -1335,6 +1429,152 @@
 
                 var c64OsOutputTitle_text = document.getElementById('c64OsOutputTitle_text');
                 c64OsOutputTitle_text.value = inputFileName.split('.')[0]
+                UpdateOutputFileName(true);
+            }
+
+            function LoadProjectFile(inputFilePath) {
+                fetch(inputFilePath).then(response => response.json()).then(data => {
+                    LoadImageFile(data["inputFileName"]);
+                    if (data["vic2ExtendedMode"]) {
+                        Click_vic2ExtendedMode_checkbox();
+                        SetInputValue('backgroundColor1_number', data["selectedBackgroundColors"][0]);
+                        SetInputValue('backgroundColor2_number', data["selectedBackgroundColors"][1]);
+                        SetInputValue('backgroundColor3_number', data["selectedBackgroundColors"][2]);
+                        SetInputValue('backgroundColor4_number', data["selectedBackgroundColors"][3]);
+                    } else {
+                        Click_vic2StandardMode_checkbox();
+                        SetInputValue('backgroundColor1_number', data["selectedBackgroundColors"][0]);
+                    }
+
+                    SetCheckboxSelected('colorBlack_checkbox', false);
+                    SetCheckboxSelected('colorWhite_checkbox', false);
+                    SetCheckboxSelected('colorRed_checkbox', false);
+                    SetCheckboxSelected('colorCyan_checkbox', false);
+                    SetCheckboxSelected('colorPurple_checkbox', false);
+                    SetCheckboxSelected('colorGreen_checkbox', false);
+                    SetCheckboxSelected('colorBlue_checkbox', false);
+                    SetCheckboxSelected('colorYellow_checkbox', false);
+                    SetCheckboxSelected('colorOrange_checkbox', false);
+                    SetCheckboxSelected('colorBrown_checkbox', false);
+                    SetCheckboxSelected('colorLightRed_checkbox', false);
+                    SetCheckboxSelected('colorDarkGrey_checkbox', false);
+                    SetCheckboxSelected('colorGrey_checkbox', false);
+                    SetCheckboxSelected('colorLightGreen_checkbox', false);
+                    SetCheckboxSelected('colorLightBlue_checkbox', false);
+                    SetCheckboxSelected('colorLightGrey_checkbox', false);
+                    
+                    for (var i=0; i<data["selectedForegroundColors"].length; i++) {
+                        var selectedColor = data["selectedForegroundColors"][i];
+                        switch (selectedColor) {
+                            case C64_COLOR_CODE_BLACK:
+                                SetCheckboxSelected('colorBlack_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_WHITE:
+                                SetCheckboxSelected('colorWhite_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_RED:
+                                SetCheckboxSelected('colorRed_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_CYAN:
+                                SetCheckboxSelected('colorCyan_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_PURPLE:
+                                SetCheckboxSelected('colorPurple_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_GREEN:
+                                SetCheckboxSelected('colorGreen_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_BLUE:
+                                SetCheckboxSelected('colorBlue_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_YELLOW:
+                                SetCheckboxSelected('colorYellow_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_ORANGE:
+                                SetCheckboxSelected('colorOrange_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_BROWN:
+                                SetCheckboxSelected('colorBrown_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_LIGHTRED:
+                                SetCheckboxSelected('colorLightRed_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_DARKGREY:
+                                SetCheckboxSelected('colorDarkGrey_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_GREY:
+                                SetCheckboxSelected('colorGrey_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_LIGHTGREEN:
+                                SetCheckboxSelected('colorLightGreen_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_LIGHTBLUE:
+                                SetCheckboxSelected('colorLightBlue_checkbox', true);
+                                break;
+                            case C64_COLOR_CODE_LIGHTGREY:
+                                SetCheckboxSelected('colorLightGrey_checkbox', true);
+                                break;
+                        }
+                    }
+
+                    if (data["characterSetUpper256"]) {
+                        Click_characterSetUpper256_checkbox();
+                    }
+                    if (data["characterSetUpperLower256"]) {
+                        Click_characterSetUpperLower256_checkbox();
+                    }
+                    if (data["characterSetExtendedGraphic64"]) {
+                        Click_characterSetExtendedGraphic64_checkbox();
+                    }
+                    if (data["characterSetExtendedAlphaNum64"]) {
+                        Click_characterSetExtendedAlphaNum64_checkbox();
+                    }
+                    if (data["characterSetCustom"]) {
+                        Click_characterSetCustom_checkbox();
+                        SetInputValue('characterSetDirectory_text', data["characterSetDirectory"]);
+                        SetInputValue('characterSetSize_number', data["characterSetSize"]);
+                    }
+
+                    SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
+                    if (data["matchExactColorAlgorithm"]) {
+                        SetCheckboxSelected('matchExactColorAlgorithm_checkbox', true);
+                        Click_matchExactColorAlgorithm_checkbox();
+                    }
+                    SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
+                    if (data["minimizeColorDifferencesLinearAlgorithm"]) {
+                        SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', true);
+                        Click_minimizeColorDifferencesLinearAlgorithm_checkbox();
+                    }
+                    SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                    if (data["minimizeColorDifferencesExponentialAlgorithm"]) {
+                        SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', true);
+                        Click_minimizeColorDifferencesExponentialAlgorithm_checkbox();
+                    }
+
+                    SetCheckboxSelected('blackAndWhiteDither_checkbox', false);
+                    if (data["blackAndWhiteDither"]) {
+                        SetCheckboxSelected('blackAndWhiteDither_checkbox', true);
+                        Click_blackAndWhiteDither_checkbox();
+                    }
+                    SetCheckboxSelected('greyscaleConversion_checkbox', false);
+                    if (data["greyscaleConversion"]) {
+                        SetCheckboxSelected('greyscaleConversion_checkbox', true);
+                        Click_greyscaleConversion_checkbox();
+                    }
+                    SetCheckboxSelected('imageNegative_checkbox', false);
+                    if (data["imageNegative"]) {
+                        SetCheckboxSelected('imageNegative_checkbox', true);
+                        Click_imageNegative_checkbox();
+                    }
+
+                    SetInputValue('imageContrast_number', data["imageContrast"]);
+                    SetInputValue('imageBrightness_number', data["imageBrightness"]);
+
+                    if (data["useGraphicsCharactersOnly"]) {
+                        Click_useGraphicsCharactersOnly_checkbox();
+                    }
+                    SetInputValue('colorSubstitutions_text', data["colorSubstitutions"]);
+                })
             }
 
             function RenderWorkingImage() {
@@ -1344,16 +1584,16 @@
                 var workingImageCanvasContext = workingImageCanvas.getContext("2d", { willReadFrequently: true });
                 workingImageCanvasContext.drawImage(sourceImage,0,0,WIDTH,HEIGHT);
 
-                var blackAndWhiteDither_switch = document.getElementById('blackAndWhiteDither_switch');
-                var skipDithering = blackAndWhiteDither_switch.checked ? false:true;
-                var greyscaleConversion_switch = document.getElementById('greyscaleConversion_switch');
-                var greyscaleConversion = greyscaleConversion_switch.checked ? true:false;
+                var blackAndWhiteDither_checkbox = document.getElementById('blackAndWhiteDither_checkbox');
+                var skipDithering = blackAndWhiteDither_checkbox.checked ? false:true;
+                var greyscaleConversion_checkbox = document.getElementById('greyscaleConversion_checkbox');
+                var greyscaleConversion = greyscaleConversion_checkbox.checked ? true:false;
                 srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipDithering, greyscaleConversion, false, false, false); //Adjust contrast, Adjust brightness, Process negative
             }
 
             function RenderCharacterSets() {
-                var formatCharacterSets_switch = document.getElementById('formatCharacterSets_switch');
-                var formatCharacterSets = formatCharacterSets_switch.checked ? true:false;
+                var formatCharacterSets_checkbox = document.getElementById('formatCharacterSets_checkbox');
+                var formatCharacterSets = formatCharacterSets_checkbox.checked ? true:false;
 
                 var character = document.getElementById("character");
                 characterContainer = document.getElementById("charsetContainer");
@@ -1453,11 +1693,9 @@
                             var imageData = charContext.getImageData(0, 0, imageWidth, imageHeight);
                             var imagePixels = imageData.data;
                             // change character image color
-                            for(var k=0; k<imagePixels.length; k+=4)
-                            {
+                            for(var k=0; k<imagePixels.length; k+=4) {
                                 // dithering, for a single color white font this won't change anything. set to desired color
-                                if (imagePixels[k  ] < 128) //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
-                                {
+                                if (imagePixels[k  ] < 128) { //because font is single color white and RGB components are equal after greyscale conversion (above) we only need to compare one color component
                                     imagePixels[k  ] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][0];
                                     imagePixels[k+1] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][1];
                                     imagePixels[k+2] = C64_SELECTED_BACKGROUND_RGB_COLORS[calculatedBackgroundColorIndex][2];
@@ -1491,16 +1729,21 @@
             }
 
             function RenderPetsciiImage() {
-                var minimizeColorDifferencesLinearAlgorithm_switch = document.getElementById('minimizeColorDifferencesLinearAlgorithm_switch');
-                var minimizeColorDifferencesLinearAlgorithm = minimizeColorDifferencesLinearAlgorithm_switch.checked ? true:false;
-                var minimizeColorDifferencesExponentialAlgorithm_switch = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_switch');
-                var minimizeColorDifferencesExponentialAlgorithm = minimizeColorDifferencesExponentialAlgorithm_switch.checked ? true:false;
-                var useGraphicsCharactersOnly_switch = document.getElementById('useGraphicsCharactersOnly_switch');
-                var useGraphicsCharactersOnly = useGraphicsCharactersOnly_switch.checked ? true:false;
+                var colorSubstitutions = null;
+                var colorSubstitutions_text = GetInputValue('colorSubstitutions_text');
+                if (colorSubstitutions_text.length > 0) {
+                    colorSubstitutions = colorSubstitutions_text.split(/\s+/);
+                }
+                var minimizeColorDifferencesLinearAlgorithm_checkbox = document.getElementById('minimizeColorDifferencesLinearAlgorithm_checkbox');
+                var minimizeColorDifferencesLinearAlgorithm = minimizeColorDifferencesLinearAlgorithm_checkbox.checked ? true:false;
+                var minimizeColorDifferencesExponentialAlgorithm_checkbox = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_checkbox');
+                var minimizeColorDifferencesExponentialAlgorithm = minimizeColorDifferencesExponentialAlgorithm_checkbox.checked ? true:false;
+                var useGraphicsCharactersOnly_checkbox = document.getElementById('useGraphicsCharactersOnly_checkbox');
+                var useGraphicsCharactersOnly_enabled = useGraphicsCharactersOnly_checkbox.checked ? true:false;
 
                 var canvas = document.getElementById('canvas');
                 var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
-                Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
+                Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly_enabled, colorSubstitutions);
             }
             
             function WeightAlphaChannel(color, alpha) {
@@ -1531,8 +1774,8 @@
                 }
 
                 if (!skipNegative) {
-                    var imageNegative_switch = document.getElementById('imageNegative_switch');
-                    negative_selected = imageNegative_switch.checked;
+                    var imageNegative_checkbox = document.getElementById('imageNegative_checkbox');
+                    negative_selected = imageNegative_checkbox.checked;
                     if (negative_selected) {
                         imgd = NegativeImage(imgd);
                     }
@@ -1553,8 +1796,7 @@
                     var newGreen;
                     var newBlue;
 
-                    if (greyscaleConversion)
-                    {
+                    if (greyscaleConversion) {
                         newRed   = pix[i  ] * .3 + 
                                    pix[i+1] * .59 + 
                                    pix[i+2] * .11;
@@ -1666,7 +1908,54 @@
                 }
             }
             
-            function Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly) {
+            function ProcessColorSubstitutions(originalCharacterColor, isForegroundColor, colorSubstitutions) {
+                if (colorSubstitutions != null) {
+                    for (var i=0; i<colorSubstitutions.length; i++) {
+                        var colorSubstitution = colorSubstitutions[i];
+                        var sourceAndDestinationColors = colorSubstitution.split("=");
+                        var sourceColor = sourceAndDestinationColors[0];
+                        var destinationColor = sourceAndDestinationColors[1];
+                        if (sourceColor[0] == "F") {
+                            if (isForegroundColor) {
+                                if (destinationColor[0] != "F") {
+                                    console.log("Invalid color substitution, cannot substitute foreground for background color: " + colorSubstitution);
+                                } else {
+                                    var src_foregroundColor = sourceColor.slice(1);
+                                    var dst_foregroundColor = destinationColor.slice(1);
+                                    if (originalCharacterColor == src_foregroundColor) {
+                                        return dst_foregroundColor;
+                                    }
+                                }
+                            }
+                        } else if (sourceColor[0] == "B") {
+                            if (!isForegroundColor) {
+                                if (destinationColor[0] != "B") {
+                                    console.log("Invalid color substitution, cannot substitute background for foreground color: " + colorSubstitution);
+                                } else {
+                                    var src_backgroundColor = sourceColor.slice(1);
+                                    var dst_backgroundColor = destinationColor.slice(1);
+                                    if (originalCharacterColor == src_backgroundColor) {
+                                        return dst_backgroundColor;
+                                    }
+                                }
+                            }
+                        } else {
+                            if (destinationColor[0] == "F") {
+                                console.log("Invalid color substitution, cannot substitute foreground for both color: " + colorSubstitution);
+                            } else if (destinationColor[0] == 'B') {
+                                console.log("Invalid color substitution, cannot substitute background for both color: " + colorSubstitution);
+                            } else {
+                                if (originalCharacterColor == sourceColor) {
+                                    return destinationColor;
+                                }
+                            }
+                        }
+                    }
+                }
+                return originalCharacterColor;
+            }
+            
+            function Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly, colorSubstitutions) {
                 var charsWide = WIDTH  / CWIDTH;
                 var charsHigh = HEIGHT / CHEIGHT;
                 
@@ -1677,11 +1966,25 @@
                     for(var x=0;x<charsWide;x++) {
                         var imageBuf  = GetCharacterSizedPartOfSourceImage(characterIndex);
                         var matchValues = FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
-                        c64CharacterForegroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
-                        c64CharacterBackgroundColors[characterIndex] = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
-                        canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
+
+                        var characterForegroundColor = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
+                        characterForegroundColor = ProcessColorSubstitutions(characterForegroundColor, true, colorSubstitutions);
+                        c64CharacterForegroundColors[characterIndex] = characterForegroundColor;
+
+                        //var characterBackgroundColor = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
+                        //characterBackgroundColor = ProcessColorSubstitutions(characterBackgroundColor, false, colorSubstitutions);
+                        //c64CharacterBackgroundColors[characterIndex] = characterBackgroundColor;
+
+                        //var substitutionCharacterSetOffset = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColor), C64_SELECTED_BACKGROUND_RGB_COLORS)*C64_SELECTED_FOREGROUND_RGB_COLORS.length*CHARACTERS + FindIndexOfSelectedColor(GetRgbColor(characterForegroundColor), C64_SELECTED_FOREGROUND_RGB_COLORS)*CHARACTERS;
                         var characterSetOffset = matchValues.selectedBackgroundColorIndex*C64_SELECTED_FOREGROUND_RGB_COLORS.length*CHARACTERS + matchValues.selectedForegroundColorIndex*CHARACTERS;
-                        petsciiCharacterCodes[characterIndex] = matchValues.characterOffset - characterSetOffset;
+                        var petsciiCharacterCode = matchValues.characterOffset - characterSetOffset;
+
+                        //Display color substitutions, but it won't work until the currently rendered character sets include the destination colors (which aren't currently included).
+                        //This could be fixed by rendering the destination colors in addition to the selected colors (and adding them to the C64_SELECTED_FOREGROUND/BACKGROUND_COLORS - without including them for FindMatch processing).
+                        //canvasContext.drawImage(characterCanvas[substitutionCharacterSetOffset + petsciiCharacterCode], x*CWIDTH, y*CHEIGHT);
+
+                        canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
+                        petsciiCharacterCodes[characterIndex] = petsciiCharacterCode;
                         characterIndex++;
                     }
                 }
@@ -1762,12 +2065,12 @@
             }
         </script>
 
-        <h2><center>C64 PETSCII Art Generator v6</center></h2>
+        <h2><center>C64 PETSCII Art Generator v7</center></h2>
 
         <center>Originally written by Gregory Nacu, <a href="https://c64os.com">C64OS.com</a></center></b>
         <center>Enhancements by Warren Wilbur</center>
 
-        <h3>1. Select any image file in the 'Sample Images' directory</h3>
+        <h3>1. Select any image or project file in the 'Sample Images' directory</h3>
 
         <small><i>Loading local source image and character set image files requires support for cross origin file loading. To do this:
         <small>
@@ -1779,8 +2082,8 @@
         </small>
         </small>
         </small></i>
-        <input type="file" class="button" value='Sample Images/s_classic.png' id="loadImageFileName_file" />
-        <input type="button" class="button" value='Load Image File' id='loadImageFile_button'>
+        <input type="file" class="button" value='Sample Images/s_classic.png' id="loadFileName_file" />
+        <input type="button" class="button" value='Load File' id='loadFile_button'>
         <br>
 
         <h3>Original Image</h3>
@@ -1790,11 +2093,11 @@
 
         <h5>2.1. Choose VIC-II character graphics mode</h3>
 
-        <input type="checkbox" id="vic2StandardMode_switch" checked class="checkbox" />
-        <label for="colorBlack_switch">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
+        <input type="checkbox" id="vic2StandardMode_checkbox" checked class="checkbox" />
+        <label for="colorBlack_checkbox">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
         <br>
-        <input type="checkbox" id="vic2ExtendedMode_switch" class="checkbox" />
-        <label for="colorBlack_switch">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
+        <input type="checkbox" id="vic2ExtendedMode_checkbox" class="checkbox" />
+        <label for="colorBlack_checkbox">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
         <br>
         <br>
         Color presets:
@@ -1807,38 +2110,38 @@
 
         <h5>2.2. Choose character set foreground colors</h3>
 
-        <input type="checkbox" id="colorBlack_switch" checked class="checkbox" />
-        <label for="colorBlack_switch">Black(0)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorWhite_switch" checked class="checkbox" />
-        <label for="colorWhite_switch">White(1)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorRed_switch" checked class="checkbox" />
-        <label for="colorRed_switch">Red(2)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorCyan_switch" checked class="checkbox" />
-        <label for="colorCyan_switch">Cyan(3)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorPurple_switch" checked class="checkbox" />
-        <label for="colorPurple_switch">Purple(4)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorGreen_switch" checked class="checkbox" />
-        <label for="colorGreen_switch">Green(5)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorBlue_switch" checked class="checkbox" />
-        <label for="colorBlue_switch">Blue(6)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorYellow_switch" checked class="checkbox" />
-        <label for="colorYellow_switch">Yellow(7)</label>&nbsp;&nbsp;&nbsp;<br>
-        <input type="checkbox" id="colorOrange_switch" checked class="checkbox" />
-        <label for="colorOrange_switch">Orange(8)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorBrown_switch" checked class="checkbox" />
-        <label for="colorBrown_switch">Brown(9)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorLightRed_switch" checked class="checkbox" />
-        <label for="colorLightRed_switch">Light Red(10)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorDarkGrey_switch" checked class="checkbox" />
-        <label for="colorDarkGrey_switch">Dark Grey(11)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorGrey_switch" checked class="checkbox" />
-        <label for="colorGrey_switch">Grey(12)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorLightGreen_switch" checked class="checkbox" />
-        <label for="colorLightGreen_switch">Light Green(13)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorLightBlue_switch" checked class="checkbox" />
-        <label for="colorLightBlue_switch">Light Blue(14)</label>&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="colorLightGrey_switch" checked class="checkbox" />
-        <label for="colorLightGrey_switch">Light Grey(15)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorBlack_checkbox" checked class="checkbox" />
+        <label for="colorBlack_checkbox">Black(0)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorWhite_checkbox" checked class="checkbox" />
+        <label for="colorWhite_checkbox">White(1)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorRed_checkbox" checked class="checkbox" />
+        <label for="colorRed_checkbox">Red(2)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorCyan_checkbox" checked class="checkbox" />
+        <label for="colorCyan_checkbox">Cyan(3)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorPurple_checkbox" checked class="checkbox" />
+        <label for="colorPurple_checkbox">Purple(4)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorGreen_checkbox" checked class="checkbox" />
+        <label for="colorGreen_checkbox">Green(5)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorBlue_checkbox" checked class="checkbox" />
+        <label for="colorBlue_checkbox">Blue(6)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorYellow_checkbox" checked class="checkbox" />
+        <label for="colorYellow_checkbox">Yellow(7)</label>&nbsp;&nbsp;&nbsp;<br>
+        <input type="checkbox" id="colorOrange_checkbox" checked class="checkbox" />
+        <label for="colorOrange_checkbox">Orange(8)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorBrown_checkbox" checked class="checkbox" />
+        <label for="colorBrown_checkbox">Brown(9)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorLightRed_checkbox" checked class="checkbox" />
+        <label for="colorLightRed_checkbox">Light Red(10)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorDarkGrey_checkbox" checked class="checkbox" />
+        <label for="colorDarkGrey_checkbox">Dark Grey(11)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorGrey_checkbox" checked class="checkbox" />
+        <label for="colorGrey_checkbox">Grey(12)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorLightGreen_checkbox" checked class="checkbox" />
+        <label for="colorLightGreen_checkbox">Light Green(13)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorLightBlue_checkbox" checked class="checkbox" />
+        <label for="colorLightBlue_checkbox">Light Blue(14)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="colorLightGrey_checkbox" checked class="checkbox" />
+        <label for="colorLightGrey_checkbox">Light Grey(15)</label>&nbsp;&nbsp;&nbsp;
 
         <h5>2.3. Choose character set background color(s)</h3>
         <label for="backgroundColor1_number">Background color1 (between 0 and 15):</label>&nbsp;&nbsp;&nbsp;
@@ -1861,23 +2164,23 @@
 
         <h6>2.4.1. Standard Character Mode</h6>
 
-        <input type="checkbox" id="characterSetUpper256_switch" checked class="checkbox" />
-        <label for="characterSetUpper256_switch">C64 US upper case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="characterSetUpper256_checkbox" checked class="checkbox" />
+        <label for="characterSetUpper256_checkbox">C64 US upper case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="characterSetUpperLower256_switch" class="checkbox" />
-        <label for="characterSetUpperLower256_switch">C64 US lower case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="characterSetUpperLower256_checkbox" class="checkbox" />
+        <label for="characterSetUpperLower256_checkbox">C64 US lower case standard (256 characters)</label>&nbsp;&nbsp;&nbsp;
 
         <h6>2.4.2. Extended (Background) Color Mode</h6>
 
-        <input type="checkbox" id="characterSetExtendedGraphic64_switch" disabled class="checkbox" />
-        <label for="characterSetExtendedGraphic64_switch">C64 US upper case extended graphic (64 characters, numbers 64-127 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="characterSetExtendedGraphic64_checkbox" disabled class="checkbox" />
+        <label for="characterSetExtendedGraphic64_checkbox">C64 US upper case extended graphic (64 characters, numbers 64-127 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="characterSetExtendedAlphaNum64_switch" disabled class="checkbox" />
-        <label for="characterSetExtendedAlphaNum64_switch">C64 US upper case extended alpha-numeric (64 characters, numbers 0-63 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="characterSetExtendedAlphaNum64_checkbox" disabled class="checkbox" />
+        <label for="characterSetExtendedAlphaNum64_checkbox">C64 US upper case extended alpha-numeric (64 characters, numbers 0-63 of the standard upper case set)</label>&nbsp;&nbsp;&nbsp;
 
         <h6>2.4.3. Custom Settings (use breakout-charset.py to prepare your own custom character sets)</h6>
-        <input type="checkbox" id="characterSetCustom_switch" class="checkbox" />
-        <label for="characterSetCustom_switch">Custom</label>
+        <input type="checkbox" id="characterSetCustom_checkbox" class="checkbox" />
+        <label for="characterSetCustom_checkbox">Custom</label>
         <br>
         <label for="characterSetDirectory_text">Enter the directory containing your character set</label>
         <input type="text" value="standard256-upper" id="characterSetDirectory_text" disabled />
@@ -1886,8 +2189,8 @@
         <input type="number" id="characterSetSize_number" value="256" min="1" max="256" disabled />
         <br>
         <br>
-        <input type="checkbox" id="formatCharacterSets_switch" class="checkbox" />
-        <label for="colorLightGrey_switch">Format rendering of character sets into 32 characters per row</label>
+        <input type="checkbox" id="formatCharacterSets_checkbox" class="checkbox" />
+        <label for="colorLightGrey_checkbox">Format rendering of character sets into 32 characters per row</label>
         <br>
         <br>
         <input type="button" class="button" value='Render Character Sets' id='renderCharacterSets_button'>
@@ -1899,24 +2202,24 @@
         <h3>3. Make image adjustments and click to Render Working Image</h3>
 
         <h5>3.1. Select algorithm for rendering the PETSCII image</h5>
-        <input type="checkbox" id="matchExactColorAlgorithm_switch" class="checkbox" />
-        <label for="matchExactColorAlgorithm_switch">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="matchExactColorAlgorithm_checkbox" class="checkbox" />
+        <label for="matchExactColorAlgorithm_checkbox">Use 'match exact color' algorithm</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="minimizeColorDifferencesLinearAlgorithm_switch" class="checkbox" />
-        <label for="minimizeColorDifferencesLinearAlgorithm_switch">Use 'minimize absolute color differences (linear)' algorithm</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="minimizeColorDifferencesLinearAlgorithm_checkbox" class="checkbox" />
+        <label for="minimizeColorDifferencesLinearAlgorithm_checkbox">Use 'minimize absolute color differences (linear)' algorithm</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_switch" checked class="checkbox" />
-        <label for="minimizeColorDifferencesExponentialAlgorithm_switch">Use 'minimize absolute color differences (exponential)' algorithm</label>
+        <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_checkbox" checked class="checkbox" />
+        <label for="minimizeColorDifferencesExponentialAlgorithm_checkbox">Use 'minimize absolute color differences (exponential)' algorithm</label>
 
         <h5>3.2. Select working image adjustments to enhance output</h5>
-        <input type="checkbox" id="blackAndWhiteDither_switch" class="checkbox" />
-        <label for="blackAndWhiteDither_switch">Dither to a two-color image (black/white)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="blackAndWhiteDither_checkbox" class="checkbox" />
+        <label for="blackAndWhiteDither_checkbox">Dither to a two-color image (black/white)</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="greyscaleConversion_switch" class="checkbox" />
-        <label for="greyscaleConversion_switch">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="greyscaleConversion_checkbox" class="checkbox" />
+        <label for="greyscaleConversion_checkbox">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
 
-        <input type="checkbox" id="imageNegative_switch" name="imageNegative_switch" />
-        <label id="imageNegative_label" for="imageNegative_switch">Image negative</label>
+        <input type="checkbox" id="imageNegative_checkbox" name="imageNegative_checkbox" />
+        <label id="imageNegative_label" for="imageNegative_checkbox">Image negative</label>
         <br>
         <br>
         <label id="imageContrast_label" for="imageContrast_number">Image Contrast (-100..200 percent):</label><br>
@@ -1934,10 +2237,13 @@
         <canvas width=320 height=200 style='width:320px;height:200px;' id='workingImageCanvas'></canvas>
 
         <h3>4. Click to render PETSCII image</h3>
-        <input type="checkbox" id="useGraphicsCharactersOnly_switch" class="checkbox" />
-        <label for="useGraphicsCharactersOnly_switch">Only use graphics characters (from the C64 upper case character set)</label>&nbsp;&nbsp;&nbsp;&nbsp;
-        <input type="checkbox" id="lockImage_switch" class="checkbox" />
-        <label for="lockImage_switch">Auto-rendering (automatically update when working image changes)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="useGraphicsCharactersOnly_checkbox" class="checkbox" />
+        <label for="useGraphicsCharactersOnly_checkbox">Only use graphics characters (from the C64 upper case character set)</label>&nbsp;&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="lockImage_checkbox" class="checkbox" />
+        <label for="lockImage_checkbox">Auto-rendering (automatically update when working image changes)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <label for="colorSubstitutions_text">Enter color substitutions for output (to substitute foreground color 2 for foreground color 1 use F1=F2, to substitute background color 2 for background color 1 use B1=B2, to substitute foreground and background color 2 for foreground and background color 1 use 1=2, separate entries should be separated by a spaces, e.g. 1=2 F1=F2 B1=B2). Substitutions will only appear in saved output files.</label>
+        <input type="text" value="" id="colorSubstitutions_text" />
         <br>
         <input type="button" class="button" value="Render PETSCII" id="renderPetscii_button">
         <br>
@@ -1946,21 +2252,23 @@
         <canvas width=320 height=200 style='width:320px;height:200px;' id='canvas'></canvas>
 
         <h3>5. Enter filename and click to save PETSCII mosaic to file</h3>
-
-        <input type="checkbox" id="binaryCharactersOnlyOutput_switch" class="checkbox" />
-        <label for="binaryCharactersOnlyOutput_switch">Save as (binary) stream of 1000 PETSCII character codes</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="projectJsonOutput_checkbox" class="checkbox" />
+        <label for="projectJsonOutput_checkbox">Save as (text) .project output format (to save project settings)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="binaryCharactersAndColorsOutput_switch" class="checkbox" />
-        <label for="binaryCharactersAndColorsOutput_switch">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="binaryCharactersOnlyOutput_checkbox" class="checkbox" />
+        <label for="binaryCharactersOnlyOutput_checkbox">Save as (binary) stream of 1000 PETSCII character codes</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="cLanguageTextOutput_switch" checked class="checkbox" />
-        <label for="cLanguageTextOutput_switch">Save as (text) .c output format (for import into Marq's PETSCII editor, not compatible when custom character set or Extended Background Color Mode are selected)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="binaryCharactersAndColorsOutput_checkbox" class="checkbox" />
+        <label for="binaryCharactersAndColorsOutput_checkbox">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="asmLanguageTextOutput_switch" class="checkbox" />
-        <label for="asmLanguageTextOutput_switch">Save as (text) .asm output format (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="cLanguageTextOutput_checkbox" checked class="checkbox" />
+        <label for="cLanguageTextOutput_checkbox">Save as (text) .c output format (for import into Marq's PETSCII editor, not compatible when custom character set or Extended Background Color Mode are selected)</label>&nbsp;&nbsp;&nbsp;
         <br>
-        <input type="checkbox" id="c64OsOutput_switch" class="checkbox" />
-        <label for="c64OsOutput_switch">Save as (binary) stream in C64OS output format</label>&nbsp;&nbsp;&nbsp;
+        <input type="checkbox" id="asmLanguageTextOutput_checkbox" class="checkbox" />
+        <label for="asmLanguageTextOutput_checkbox">Save as (text) .asm output format (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
+        <br>
+        <input type="checkbox" id="c64OsOutput_checkbox" class="checkbox" />
+        <label for="c64OsOutput_checkbox">Save as (binary) stream in C64OS output format</label>&nbsp;&nbsp;&nbsp;
         <br>
         File Header Fields (C64OS format only):<br>
         <label for="c64OsOutputTitle_text">Enter title (16 chars)</label>
@@ -1973,9 +2281,10 @@
         <input type="text" id="c64OsOutputCopyright_text" value="NOT SPECIFIED" maxlength="16" disabled />
         <br>
         <br>
-        <input type="text" value="petsciiart.c" id="savePetsciiFileName">
-        <input type="button" class="button" value="Save PETSCII File" id="savePetsciiFile_button">
+        <input type="text" value="petsciiart.c" id="saveFileName">
+        <input type="button" class="button" value="Save File" id="saveFile_button">
         <br>
         <br>
     </body>
 </html>
+
