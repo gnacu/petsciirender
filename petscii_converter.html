@@ -140,7 +140,7 @@
             }
 
             // find specified RGB color in C64_SELECTED_RGB_COLORS array and return it's index, return undefined if not found.
-            function FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS) {
+            function FindIndexOfSelectedRgbColor(rgbColor, C64_SELECTED_RGB_COLORS) {
                 var colorIndex = -1;
                 for (var i=0; i<C64_SELECTED_RGB_COLORS.length; i++) {
                     if (MatchRgbColors(C64_SELECTED_RGB_COLORS[i], rgbColor)) {
@@ -457,7 +457,7 @@
                         if (vic2ExtendedMode_enabled) {
                             var extendedCharacterCodes = new Uint8Array(characterCodes.length);
                             for (var i=0; i<characterCodes.length; i++) {
-                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                var backgroundColorIndex = FindIndexOfSelectedRgbColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
                                 extendedCharacterCodes[i] = EncodeExtendedColorModeCharacter(characterCodes[i], backgroundColorIndex);
                             }
                             blob = new Blob([extendedCharacterCodes], {type: "application/octet-stream"});
@@ -469,7 +469,7 @@
                         if (vic2ExtendedMode_enabled) {
                             var extendedCharacterCodes = new Uint8Array(characterCodes.length);
                             for (var i=0; i<characterCodes.length; i++) {
-                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                var backgroundColorIndex = FindIndexOfSelectedRgbColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
                                 extendedCharacterCodes[i] = EncodeExtendedColorModeCharacter(characterCodes[i], backgroundColorIndex);
                             }
                             saveFields.push(extendedCharacterCodes);
@@ -500,7 +500,7 @@
                         for (var i=0;i<characterCodes.length;i++) {
                             characterCode = characterCodes[i];
                             if (vic2ExtendedMode_enabled) {
-                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                var backgroundColorIndex = FindIndexOfSelectedRgbColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
                                 characterCode = EncodeExtendedColorModeCharacter(characterCode, backgroundColorIndex);
                             }
                             bufStr = bufStr + characterCode + ",";
@@ -536,7 +536,7 @@
                         for (var i=0;i<characterCodes.length;i++) {
                             characterCode = characterCodes[i];
                             if (vic2ExtendedMode_enabled) {
-                                var backgroundColorIndex = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
+                                var backgroundColorIndex = FindIndexOfSelectedRgbColor(GetRgbColor(characterBackgroundColors[i]), C64_SELECTED_BACKGROUND_RGB_COLORS);
                                 characterCode = EncodeExtendedColorModeCharacter(characterCode, backgroundColorIndex);
                             }
                             if (i % (WIDTH/CWIDTH) == 0) {
@@ -676,7 +676,7 @@
             function SetSelectedColorsCheckbox(checkboxId, rgbColor, C64_SELECTED_RGB_COLORS) {
                 var color_checkbox = document.getElementById(checkboxId);
                 var color_enabled = color_checkbox.checked ? true:false;
-                var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
+                var color_index = FindIndexOfSelectedRgbColor(rgbColor, C64_SELECTED_RGB_COLORS);
                 if (color_enabled) {
                     if (color_index == -1) {
                         C64_SELECTED_RGB_COLORS.push(rgbColor);
@@ -689,7 +689,7 @@
                 var color_number = document.getElementById(numberId);
                 var colorCode = parseInt(color_number.value);
                 var rgbColor = GetRgbColor(colorCode);
-                var color_index = FindIndexOfSelectedColor(rgbColor, C64_SELECTED_RGB_COLORS);
+                var color_index = FindIndexOfSelectedRgbColor(rgbColor, C64_SELECTED_RGB_COLORS);
                 if (color_index == -1) {
                     C64_SELECTED_RGB_COLORS.push(rgbColor);
                 }
@@ -1968,20 +1968,13 @@
                         var matchValues = FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
 
                         var characterForegroundColor = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
-                        characterForegroundColor = ProcessColorSubstitutions(characterForegroundColor, true, colorSubstitutions);
                         c64CharacterForegroundColors[characterIndex] = characterForegroundColor;
 
-                        //var characterBackgroundColor = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
-                        //characterBackgroundColor = ProcessColorSubstitutions(characterBackgroundColor, false, colorSubstitutions);
-                        //c64CharacterBackgroundColors[characterIndex] = characterBackgroundColor;
+                        var characterBackgroundColor = GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[matchValues.selectedBackgroundColorIndex]);
+                        c64CharacterBackgroundColors[characterIndex] = characterBackgroundColor;
 
-                        //var substitutionCharacterSetOffset = FindIndexOfSelectedColor(GetRgbColor(characterBackgroundColor), C64_SELECTED_BACKGROUND_RGB_COLORS)*C64_SELECTED_FOREGROUND_RGB_COLORS.length*CHARACTERS + FindIndexOfSelectedColor(GetRgbColor(characterForegroundColor), C64_SELECTED_FOREGROUND_RGB_COLORS)*CHARACTERS;
                         var characterSetOffset = matchValues.selectedBackgroundColorIndex*C64_SELECTED_FOREGROUND_RGB_COLORS.length*CHARACTERS + matchValues.selectedForegroundColorIndex*CHARACTERS;
                         var petsciiCharacterCode = matchValues.characterOffset - characterSetOffset;
-
-                        //Display color substitutions, but it won't work until the currently rendered character sets include the destination colors (which aren't currently included).
-                        //This could be fixed by rendering the destination colors in addition to the selected colors (and adding them to the C64_SELECTED_FOREGROUND/BACKGROUND_COLORS - without including them for FindMatch processing).
-                        //canvasContext.drawImage(characterCanvas[substitutionCharacterSetOffset + petsciiCharacterCode], x*CWIDTH, y*CHEIGHT);
 
                         canvasContext.drawImage(characterCanvas[matchValues.characterOffset], x*CWIDTH, y*CHEIGHT);
                         petsciiCharacterCodes[characterIndex] = petsciiCharacterCode;

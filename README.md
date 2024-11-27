@@ -3,8 +3,11 @@ A web-based PETSCII Art Renderer.
 
 Features:
 - Rendering in Standard (High-Res) Character Mode or Extended Background Color Mode.
-- Support for custom character sets.
+- Select C64 character set for rendering including support for custom character sets.
+- Load/Save project file to preserve image rendering configuration.
 - Save file formats that can be imported into external PETSCII editors.
+- Adjust image contrast and image brightness for optimal image rendering.
+- Substitute colors in save file output.
 
 Loading source images and character set images requires support for cross origin file loading. To do this:
 - On Windows: Start Chrome from the command prompt using "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --allow-file-access-from-files file:///D:/petsciirender/petscii_converter.html
