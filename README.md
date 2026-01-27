@@ -3,6 +3,7 @@ A web-based PETSCII Art Renderer.
 
 Features:
 - Rendering in Standard (High-Res) Character Mode or Extended Background Color Mode.
+- Dithering to black and white or selected colors from C64 color palette.
 - Select your choice of C64 character sets for rendering including support for custom character sets.
 - Load/Save project file to preserve image rendering configuration.
 - Save file formats that can be imported into external PETSCII editors.

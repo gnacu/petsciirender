@@ -386,6 +386,8 @@
 
                     var blackAndWhiteDither_enabled = GetCheckboxSetting('blackAndWhiteDither_checkbox');
                     var greyscaleConversion_enabled = GetCheckboxSetting('greyscaleConversion_checkbox');
+                    var selectedColorDither_enabled = GetCheckboxSetting('selectedColorDither_checkbox');
+                    var propogateDitheringError_enabled = GetCheckboxSetting('propogateDitheringError_checkbox');
                     var imageNegative_enabled = GetCheckboxSetting('imageNegative_checkbox');
                     var imageContrast_number = GetInputValue('imageContrast_number');
                     var imageBrightness_number = GetInputValue('imageBrightness_number');
@@ -443,6 +445,8 @@
 
                         bufStr = bufStr + '  "blackAndWhiteDither":' + JSON.stringify(blackAndWhiteDither_enabled) + ",\n";
                         bufStr = bufStr + '  "greyscaleConversion":' + JSON.stringify(greyscaleConversion_enabled) + ",\n";
+                        bufStr = bufStr + '  "selectedColorDither":' + JSON.stringify(selectedColorDither_enabled) + ",\n";
+                        bufStr = bufStr + '  "propogateDitheringError":' + JSON.stringify(propogateDitheringError_enabled) + ",\n";
                         bufStr = bufStr + '  "imageNegative":' + JSON.stringify(imageNegative_enabled) + ",\n";
                         bufStr = bufStr + '  "imageContrast":' + JSON.stringify(Number(imageContrast_number)) + ",\n";
                         bufStr = bufStr + '  "imageBrightness":' + JSON.stringify(Number(imageBrightness_number)) + ",\n";
@@ -838,6 +842,8 @@
                 if (matchExactColorAlgorithm_enabled) {
                     SetInputEnabled('blackAndWhiteDither_checkbox', false);
                     SetCheckboxSelected('blackAndWhiteDither_checkbox', true);
+                    SetInputEnabled('selectedColorDither_checkbox', false);
+                    SetCheckboxSelected('selectedColorDither_checkbox', false);
                     SetupBlackAndWhiteDithering();
 
                     SetInputEnabled('colorBlack_checkbox', false);
@@ -877,6 +883,7 @@
                     SetInputValue('backgroundColor1_number', 0);
                 } else {
                     SetInputEnabled('blackAndWhiteDither_checkbox', true);
+                    SetInputEnabled('selectedColorDither_checkbox', true);
 
                     SetInputEnabled('colorBlack_checkbox', true);
                     SetInputEnabled('colorWhite_checkbox', true);
@@ -941,27 +948,21 @@
 
             function Click_blackAndWhiteDither_checkbox() {
                 SetupBlackAndWhiteDithering();
-
-                if (GetCheckboxSetting('lockImage_checkbox')) {
-                    if (lockImage_enabled) {
-                        RenderWorkingImage();
-                        RenderPetsciiImage();
-                    }
-                }
             }
 
             function Click_greyscaleConversion_checkbox() {
-                if (GetCheckboxSetting('lockImage_checkbox')) {
-                    RenderWorkingImage();
-                    RenderPetsciiImage();
-                }
+            }
+
+            function Click_selectedColorDither_checkbox() {
+            }
+
+            function Click_propogateDitheringError_checkbox() {
+            }
+
+            function Click_useGraphicsCharactersOnly_checkbox() {
             }
 
             function Click_imageNegative_checkbox() {
-                if (GetCheckboxSetting('lockImage_checkbox')) {
-                    RenderWorkingImage();
-                    RenderPetsciiImage();
-                }
             }
 
             function Click_imageContrast_number() {
@@ -1016,6 +1017,8 @@
                 document.getElementById('minimizeColorDifferencesExponentialAlgorithm_checkbox').onclick = function(){Click_minimizeColorDifferencesExponentialAlgorithm_checkbox()};
                 document.getElementById('blackAndWhiteDither_checkbox').onclick = function(){Click_blackAndWhiteDither_checkbox()};
                 document.getElementById('greyscaleConversion_checkbox').onclick = function(){Click_greyscaleConversion_checkbox()};
+                document.getElementById('selectedColorDither_checkbox').onclick = function(){Click_selectedColorDither_checkbox()};
+                document.getElementById('propogateDitheringError_checkbox').onclick = function(){Click_propogateDitheringError_checkbox()};
                 document.getElementById('imageNegative_checkbox').onclick = function(){Click_imageNegative_checkbox()};
 
                 document.getElementById('imageContrast_range').onclick = function() {
@@ -1561,6 +1564,16 @@
                         SetCheckboxSelected('greyscaleConversion_checkbox', true);
                         Click_greyscaleConversion_checkbox();
                     }
+                    SetCheckboxSelected('selectedColorDither_checkbox', false);
+                    if (data["selectedColorDither"]) {
+                        SetCheckboxSelected('selectedColorDither_checkbox', true);
+                        Click_selectedColorDither_checkbox();
+                    }
+                    SetCheckboxSelected('propogateDitheringError_checkbox', false);
+                    if (data["propogateDitheringError"]) {
+                        SetCheckboxSelected('propogateDitheringError_checkbox', true);
+                        Click_propogateDitheringError_checkbox();
+                    }
                     SetCheckboxSelected('imageNegative_checkbox', false);
                     if (data["imageNegative"]) {
                         SetCheckboxSelected('imageNegative_checkbox', true);
@@ -1570,7 +1583,9 @@
                     SetInputValue('imageContrast_number', data["imageContrast"]);
                     SetInputValue('imageBrightness_number', data["imageBrightness"]);
 
+                    SetCheckboxSelected('useGraphicsCharactersOnly_checkbox', false);
                     if (data["useGraphicsCharactersOnly"]) {
+                        SetCheckboxSelected('useGraphicsCharactersOnly_checkbox', true);
                         Click_useGraphicsCharactersOnly_checkbox();
                     }
                     SetInputValue('colorSubstitutions_text', data["colorSubstitutions"]);
@@ -1585,10 +1600,14 @@
                 workingImageCanvasContext.drawImage(sourceImage,0,0,WIDTH,HEIGHT);
 
                 var blackAndWhiteDither_checkbox = document.getElementById('blackAndWhiteDither_checkbox');
-                var skipDithering = blackAndWhiteDither_checkbox.checked ? false:true;
+                var skipBlackAndWhiteDithering = blackAndWhiteDither_checkbox.checked ? false:true;
+                var selectedColorDither_checkbox = document.getElementById('selectedColorDither_checkbox');
+                var skipSelectedColorDithering = selectedColorDither_checkbox.checked ? false:true;
+                var propogateDitheringError_checkbox = document.getElementById('propogateDitheringError_checkbox');
+                var propogateDitheringError = propogateDitheringError_checkbox.checked ? true:false;
                 var greyscaleConversion_checkbox = document.getElementById('greyscaleConversion_checkbox');
                 var greyscaleConversion = greyscaleConversion_checkbox.checked ? true:false;
-                srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipDithering, greyscaleConversion, false, false, false); //Adjust contrast, Adjust brightness, Process negative
+                srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipBlackAndWhiteDithering, greyscaleConversion, skipSelectedColorDithering, propogateDitheringError, false, false, false); //Adjust contrast, Adjust brightness, Process negative
             }
 
             function RenderCharacterSets() {
@@ -1638,7 +1657,7 @@
                             var calculatedForegroundColorIndex = Math.floor((j%(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length))/CHARACTERS);
                             
                             charContext.drawImage(character, 0, 0);
-                            pxbuf = CreateWorkingImage(charContext, CWIDTH, CHEIGHT, true, true, true, true, true); //Skip dithering, Perform greyscale conversion, Skip contrast, Skip brightness, Skip negative
+                            pxbuf = CreateWorkingImage(charContext, CWIDTH, CHEIGHT, true, true, true, false, true, true, true); //Skip black&white dithering, Perform greyscale conversion, Skip selected color dithering, Propogate dithering error, Skip contrast, Skip brightness, Skip negative
 
                             // create C64 character set bytes (in C64 ROM format) for saving with C64OS format (later).
                             //If the user selects foreground == background color it will be impossible to make this later as original font color information will be overwritten (below).
@@ -1754,7 +1773,7 @@
                 return newColor;
             }
 
-            function CreateWorkingImage(context,w,h,skipDithering,greyscaleConversion, skipContrast, skipBrightness, skipNegative) {
+            function CreateWorkingImage(context, w, h, skipBlackAndWhiteDithering, greyscaleConversion, skipSelectedColorDithering, propogateDitheringError, skipContrast, skipBrightness, skipNegative) {
                 var imgd = context.getImageData(0, 0, w,h);
 
                 if (!skipContrast) {
@@ -1811,8 +1830,12 @@
                     ebBuf.push(newColor);
                 }
                 
-                if (!skipDithering) {
-                    Dither(ebBuf,w,h);
+                if (!skipBlackAndWhiteDithering) {
+                    BlackAndWhiteDither(ebBuf, w, h, propogateDitheringError);
+                }
+                
+                if (!skipSelectedColorDithering) {
+                    SelectedColorDither(ebBuf, w, h, propogateDitheringError);
                 }
                 
                 for(var i=0;i<ebBuf.length;i++) {
@@ -1867,8 +1890,8 @@
                 return imageData;
             };
 
-            // dithering from greyscale to a two-color image (black/white)
-            function Dither(sb, w, h) {   // source buffer, width, height
+            // dithering (with Floyd-Steinberg error diffusion) from greyscale to a two-color image (black/white)
+            function BlackAndWhiteDither(sb, w, h, propogateError) {   // source buffer, width, height
                 for(var y=0; y<h; y++) {
                     for(var x=0; x<w; x++) {
                         var ci = y*w+x;               // current buffer index
@@ -1880,34 +1903,108 @@
                         sb[ci][1] = rc;                  // saving real color (green, since image is greyscale color is the same as red)
                         sb[ci][2] = rc;                  // saving real color (blue, since image is greyscale color is the same as red)
 
-                        if(x+1 < w) {
-                            sb[ci+1][0] += (err*7)>>4;  // if right neighbour exists (red)
-                            sb[ci+1][1] += (err*7)>>4;  // if right neighbour exists (green)
-                            sb[ci+1][2] += (err*7)>>4;  // if right neighbour exists (blue)
-                        }
-    
-                        // if there is another line below our current image line then use it for rounding error
-                        if(y+1 < h) {
-                            if(x > 0) {
-                                sb[ci+w-1][0] += (err*3)>>4;  // bottom left neighbour (red)
-                                sb[ci+w-1][1] += (err*3)>>4;  // bottom left neighbour (green)
-                                sb[ci+w-1][2] += (err*3)>>4;  // bottom left neighbour (blue)
-                            }
-
-                            sb[ci+w][0] += (err*5)>>4;  // bottom neighbour (red)
-                            sb[ci+w][1] += (err*5)>>4;  // bottom neighbour (green)
-                            sb[ci+w][2] += (err*5)>>4;  // bottom neighbour (blue)
-
+                        if (propogateError) {
                             if(x+1 < w) {
-                                sb[ci+w+1][0] += (err*1)>>4;  // bottom right neighbour (red)
-                                sb[ci+w+1][1] += (err*1)>>4;  // bottom right neighbour (green)
-                                sb[ci+w+1][2] += (err*1)>>4;  // bottom right neighbour (blue)
+                                sb[ci+1][0] += (err*7)>>4;  // if right neighbour exists (red)
+                                sb[ci+1][1] += (err*7)>>4;  // if right neighbour exists (green)
+                                sb[ci+1][2] += (err*7)>>4;  // if right neighbour exists (blue)
+                            }
+        
+                            // if there is another line below our current image line then use it for rounding error
+                            if(y+1 < h) {
+                                if(x > 0) {
+                                    sb[ci+w-1][0] += (err*3)>>4;  // bottom left neighbour (red)
+                                    sb[ci+w-1][1] += (err*3)>>4;  // bottom left neighbour (green)
+                                    sb[ci+w-1][2] += (err*3)>>4;  // bottom left neighbour (blue)
+                                }
+
+                                sb[ci+w][0] += (err*5)>>4;  // bottom neighbour (red)
+                                sb[ci+w][1] += (err*5)>>4;  // bottom neighbour (green)
+                                sb[ci+w][2] += (err*5)>>4;  // bottom neighbour (blue)
+
+                                if(x+1 < w) {
+                                    sb[ci+w+1][0] += (err*1)>>4;  // bottom right neighbour (red)
+                                    sb[ci+w+1][1] += (err*1)>>4;  // bottom right neighbour (green)
+                                    sb[ci+w+1][2] += (err*1)>>4;  // bottom right neighbour (blue)
+                                }
                             }
                         }
                     }
                 }
             }
             
+            // dithering (with Floyd-Steinberg error diffusion) from original color image to selected C64 color image
+            function SelectedColorDither(sb, w, h, propogateError) {   // source buffer, width, height
+                for(var y=0; y<h; y++) {
+                    for(var x=0; x<w; x++) {
+                        var ci = y*w+x;               // current buffer index
+                        var cc = sb[ci];              // current color
+                        var rc = [0,0,0];             // real (dithered) color
+                        var err = [255, 255, 255];    // error amount
+
+                        for (var selectedBackgroundColorIndex=0; selectedBackgroundColorIndex<C64_SELECTED_BACKGROUND_RGB_COLORS.length; selectedBackgroundColorIndex++) {
+                            tmpErr = (Math.abs(cc[0] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][0])) +
+                                     (Math.abs(cc[1] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][1])) +
+                                     (Math.abs(cc[2] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][2]));
+                            if (tmpErr < (Math.abs(err[0]) + Math.abs(err[1]) + Math.abs(err[2])))
+                            {
+                                rc[0] = C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][0];
+                                rc[1] = C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][1];
+                                rc[2] = C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][2];
+                                err[0] = cc[0] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][0];
+                                err[1] = cc[1] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][1];
+                                err[2] = cc[2] - C64_SELECTED_BACKGROUND_RGB_COLORS[selectedBackgroundColorIndex][2];
+                            }
+                        }
+                        for (var selectedForegroundColorIndex=0; selectedForegroundColorIndex<C64_SELECTED_FOREGROUND_RGB_COLORS.length; selectedForegroundColorIndex++) {
+                            tmpErr = (Math.abs(cc[0] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][0])) +
+                                     (Math.abs(cc[1] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][1])) +
+                                     (Math.abs(cc[2] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][2]));
+                            if (tmpErr < (Math.abs(err[0]) + Math.abs(err[1]) + Math.abs(err[2])))
+                            {
+                                rc[0] = C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][0];
+                                rc[1] = C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][1];
+                                rc[2] = C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][2];
+                                err[0] = cc[0] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][0];
+                                err[1] = cc[1] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][1];
+                                err[2] = cc[2] - C64_SELECTED_FOREGROUND_RGB_COLORS[selectedForegroundColorIndex][2];
+                            }
+                        }
+
+                        sb[ci][0] = rc[0];            // saving real color (red)
+                        sb[ci][1] = rc[1];            // saving real color (green, since image is greyscale color is the same as red)
+                        sb[ci][2] = rc[2];            // saving real color (blue, since image is greyscale color is the same as red)
+
+                        if (propogateError) {
+                            if(x+1 < w) {
+                                sb[ci+1][0] += (err[0]*7)>>4;  // if right neighbour exists (red)
+                                sb[ci+1][1] += (err[1]*7)>>4;  // if right neighbour exists (green)
+                                sb[ci+1][2] += (err[2]*7)>>4;  // if right neighbour exists (blue)
+                            }
+        
+                            // if there is another line below our current image line then use it for rounding error
+                            if(y+1 < h) {
+                                if(x > 0) {
+                                    sb[ci+w-1][0] += (err[0]*3)>>4;  // bottom left neighbour (red)
+                                    sb[ci+w-1][1] += (err[1]*3)>>4;  // bottom left neighbour (green)
+                                    sb[ci+w-1][2] += (err[2]*3)>>4;  // bottom left neighbour (blue)
+                                }
+
+                                sb[ci+w][0] += (err[0]*5)>>4;  // bottom neighbour (red)
+                                sb[ci+w][1] += (err[1]*5)>>4;  // bottom neighbour (green)
+                                sb[ci+w][2] += (err[2]*5)>>4;  // bottom neighbour (blue)
+
+                                if(x+1 < w) {
+                                    sb[ci+w+1][0] += (err[0]*1)>>4;  // bottom right neighbour (red)
+                                    sb[ci+w+1][1] += (err[1]*1)>>4;  // bottom right neighbour (green)
+                                    sb[ci+w+1][2] += (err[2]*1)>>4;  // bottom right neighbour (blue)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             function ProcessColorSubstitutions(originalCharacterColor, isForegroundColor, colorSubstitutions) {
                 if (colorSubstitutions != null) {
                     for (var i=0; i<colorSubstitutions.length; i++) {
@@ -2211,6 +2308,12 @@
 
         <input type="checkbox" id="greyscaleConversion_checkbox" class="checkbox" />
         <label for="greyscaleConversion_checkbox">Convert to greyscale image</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="selectedColorDither_checkbox" class="checkbox" />
+        <label for="selectedColorDither_checkbox">Dither to the selected colors for image</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="propogateDitheringError_checkbox" class="checkbox" />
+        <label for="propogateDitheringError_checkbox">Propogate dithering error to neighboring pixels (reduces contrast)</label>&nbsp;&nbsp;&nbsp;
 
         <input type="checkbox" id="imageNegative_checkbox" name="imageNegative_checkbox" />
         <label id="imageNegative_label" for="imageNegative_checkbox">Image negative</label>
