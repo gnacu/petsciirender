@@ -3,7 +3,7 @@
     <head>
         <meta charset="utf-8" />
         <title>
-            C64 PETSCII Art Generator v7
+            C64 PETSCII Art Generator v8
         </title>
         <style type='text/css'>
             .button {
@@ -68,19 +68,20 @@
             //     Provide color substitutions in output (to minimize PETSCII editor
             //     time in post-processing).
             //
-            //TODO v8: Planned enhancement. Add additional rendering improvements (see
-            //     findMatch). Characters that are the wrong shape but the right color
-            //     will match perfectly (i.e. black '@' will match blank). Characters
-            //     that contain pixels that miss (the ideal) by 1 or more pixels are
-            //     treated equally (a miss by a bit is the same as a miss by alot).
-            //     It would be nice to score shape (from grayscale image) and color
-            //     (from color image) separately and let the user balance shape v.s.
-            //     color accuracy in the rendering output. Define color averaging
-            //     for specific characters (which are dithered, single color score).
-            //     
-            //TODO v9: Planned enhancement. 
-            //     Add support for either web service or command line usage (for
-            //     build toolchain use) for automatically converting image files.
+            // v8: Enhancement by Warren Wilbur. 
+            //     Add algorithm option to minimize (miss) distance to matching exact
+            //     color when rending to PETSCII to improve accuracy. Without this,
+            //     characters that contain pixels that miss (the ideal) by a distance
+            //     of 1 or more would be treated equally (i.e. a miss by a bit would
+            //     be the same as a miss by alot). Add dithering to C64 color palette
+            //     to allow exact color matching in multi-color (required to calculate
+            //     miss distance).
+            //
+            //TODO v9: Planned enhancement.
+            //     Add support for either web service or command line usage (for build
+            //     toolchain use) for automatically converting image files. Add support
+            //     for exporting output file format into CBM prg Studio.
+            //
             var CHARACTERS = 256;
             var WIDTH      = 320;
             var HEIGHT     = 200;
@@ -247,7 +248,7 @@
             }
 
             var chardata = [];
-            var srcdata  = [];
+            var workingImageData = [];
             var petsciiCharacterCodes        = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
             var c64CharacterForegroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
             var c64CharacterBackgroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
@@ -383,6 +384,8 @@
                     var matchExactColorAlgorithm_enabled = GetCheckboxSetting('matchExactColorAlgorithm_checkbox');
                     var minimizeColorDifferencesLinearAlgorithm_enabled = GetCheckboxSetting('minimizeColorDifferencesLinearAlgorithm_checkbox');
                     var minimizeColorDifferencesExponentialAlgorithm_enabled = GetCheckboxSetting('minimizeColorDifferencesExponentialAlgorithm_checkbox');
+                    var minimizeDistanceToColorMatchAlgorithm_enabled = GetCheckboxSetting('minimizeDistanceToColorMatchAlgorithm_checkbox');
+                    var distanceToMeasure = GetCheckboxSetting('distance1_radio') ? 1:2;
 
                     var blackAndWhiteDither_enabled = GetCheckboxSetting('blackAndWhiteDither_checkbox');
                     var greyscaleConversion_enabled = GetCheckboxSetting('greyscaleConversion_checkbox');
@@ -442,6 +445,8 @@
                         bufStr = bufStr + '  "matchExactColorAlgorithm":' + JSON.stringify(matchExactColorAlgorithm_enabled) + ",\n";
                         bufStr = bufStr + '  "minimizeColorDifferencesLinearAlgorithm":' + JSON.stringify(minimizeColorDifferencesLinearAlgorithm_enabled) + ",\n";
                         bufStr = bufStr + '  "minimizeColorDifferencesExponentialAlgorithm":' + JSON.stringify(minimizeColorDifferencesExponentialAlgorithm_enabled) + ",\n";
+                        bufStr = bufStr + '  "minimizeDistanceToColorMatchAlgorithm":' + JSON.stringify(minimizeDistanceToColorMatchAlgorithm_enabled) + ",\n";
+                        bufStr = bufStr + '  "distanceToMeasure":' + JSON.stringify(distanceToMeasure) + ",\n";
 
                         bufStr = bufStr + '  "blackAndWhiteDither":' + JSON.stringify(blackAndWhiteDither_enabled) + ",\n";
                         bufStr = bufStr + '  "greyscaleConversion":' + JSON.stringify(greyscaleConversion_enabled) + ",\n";
@@ -700,23 +705,12 @@
             }
 
             function UpdateOutputFileName(loadingNewFile) {
-                var projectJsonOutput_checkbox = document.getElementById('projectJsonOutput_checkbox');
-                var projectJsonOutput_checkbox_enabled = projectJsonOutput_checkbox.checked ? true:false;
-
-                var binaryCharactersOnlyOutput_checkbox = document.getElementById('binaryCharactersOnlyOutput_checkbox');
-                var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_checkbox.checked ? true:false;
-
-                var binaryCharactersAndColorsOutput_checkbox = document.getElementById('binaryCharactersAndColorsOutput_checkbox');
-                var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_checkbox.checked ? true:false;
-
-                var cLanguageTextOutput_checkbox = document.getElementById('cLanguageTextOutput_checkbox');
-                var cLanguageTextOutput_enabled = cLanguageTextOutput_checkbox.checked ? true:false;
-
-                var asmLanguageTextOutput_checkbox = document.getElementById('asmLanguageTextOutput_checkbox');
-                var asmLanguageTextOutput_enabled = asmLanguageTextOutput_checkbox.checked ? true:false;
-
-                var c64OsOutput_checkbox = document.getElementById('c64OsOutput_checkbox');
-                var c64OsOutput_enabled = c64OsOutput_checkbox.checked ? true:false;
+                var projectJsonOutput_checkbox_enabled = GetCheckboxSetting('projectJsonOutput_checkbox');
+                var binaryCharactersOnlyOutput_enabled = GetCheckboxSetting('binaryCharactersOnlyOutput_checkbox');
+                var binaryCharactersAndColorsOutput_enabled = GetCheckboxSetting('binaryCharactersAndColorsOutput_checkbox');
+                var cLanguageTextOutput_enabled = GetCheckboxSetting('cLanguageTextOutput_checkbox');
+                var asmLanguageTextOutput_enabled = GetCheckboxSetting('asmLanguageTextOutput_checkbox');
+                var c64OsOutput_enabled = GetCheckboxSetting('c64OsOutput_checkbox');
 
                 var saveFileName_element = document.getElementById('saveFileName');
                 var saveFileName = saveFileName_element.value;
@@ -836,15 +830,14 @@
                 SetInputEnabled('characterSetSize_number', true);
             }
 
-            function SetupMatchExactColorAlgorithm() {
-                var matchExactColorAlgorithm_checkbox = document.getElementById('matchExactColorAlgorithm_checkbox');
-                var matchExactColorAlgorithm_enabled = matchExactColorAlgorithm_checkbox.checked ? true:false;
+            function Setup_matchExactColorAlgorithm() {
+                var matchExactColorAlgorithm_enabled = GetCheckboxSetting('matchExactColorAlgorithm_checkbox');
                 if (matchExactColorAlgorithm_enabled) {
                     SetInputEnabled('blackAndWhiteDither_checkbox', false);
                     SetCheckboxSelected('blackAndWhiteDither_checkbox', true);
                     SetInputEnabled('selectedColorDither_checkbox', false);
                     SetCheckboxSelected('selectedColorDither_checkbox', false);
-                    SetupBlackAndWhiteDithering();
+                    Setup_blackAndWhiteDither();
 
                     SetInputEnabled('colorBlack_checkbox', false);
                     SetCheckboxSelected('colorBlack_checkbox', false);
@@ -906,37 +899,71 @@
                 }
             }
 
+            function Setup_minimizeDistanceToColorMatchAlgorithm()
+            {
+                if (GetCheckboxSetting('minimizeDistanceToColorMatchAlgorithm_checkbox')) {
+                    SetInputEnabled('selectedColorDither_checkbox', false);
+                    SetCheckboxSelected('selectedColorDither_checkbox', true);
+
+                    SetCheckboxSelected('blackAndWhiteDither_checkbox', false);
+                    SetCheckboxSelected('greyscaleConversion_checkbox', false);
+                } else {
+                    SetInputEnabled('selectedColorDither_checkbox', true);
+                }
+            }
+
             function Click_matchExactColorAlgorithm_checkbox() {
                 if (GetCheckboxSetting('matchExactColorAlgorithm_checkbox')) {
                     SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
                     SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', false);
+                    Setup_minimizeDistanceToColorMatchAlgorithm();
                 } else {
                     SetCheckboxSelected('matchExactColorAlgorithm_checkbox', true);
+                    SetInputEnabled('selectedColorDither_checkbox', true);
                 }
-                SetupMatchExactColorAlgorithm();
+                Setup_matchExactColorAlgorithm();
             }
 
             function Click_minimizeColorDifferencesLinearAlgorithm_checkbox() {
                 if (GetCheckboxSetting('minimizeColorDifferencesLinearAlgorithm_checkbox')) {
                     SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
                     SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', false);
+                    Setup_matchExactColorAlgorithm();
+                    Setup_minimizeDistanceToColorMatchAlgorithm();
                 } else {
                     SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', true);
+                    SetInputEnabled('selectedColorDither_checkbox', true);
                 }
-                SetupMatchExactColorAlgorithm();
             }
 
             function Click_minimizeColorDifferencesExponentialAlgorithm_checkbox() {
                 if (GetCheckboxSetting('minimizeColorDifferencesExponentialAlgorithm_checkbox')) {
                     SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
                     SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', false);
+                    Setup_matchExactColorAlgorithm();
+                    Setup_minimizeDistanceToColorMatchAlgorithm();
                 } else {
                     SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', true);
+                    SetInputEnabled('selectedColorDither_checkbox', true);
                 }
-                SetupMatchExactColorAlgorithm();
             }
 
-            function SetupBlackAndWhiteDithering() {
+            function Click_minimizeDistanceToColorMatchAlgorithm_checkbox() {
+                if (GetCheckboxSetting('minimizeDistanceToColorMatchAlgorithm_checkbox')) {
+                    SetCheckboxSelected('matchExactColorAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeColorDifferencesLinearAlgorithm_checkbox', false);
+                    SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', false);
+                    Setup_matchExactColorAlgorithm();
+                } else {
+                    SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', true);
+                }
+                Setup_minimizeDistanceToColorMatchAlgorithm();
+            }
+
+            function Setup_blackAndWhiteDither() {
                 if (GetCheckboxSetting('blackAndWhiteDither_checkbox')) {
                     // when dithering also perform greyscale conversion
                     SetInputEnabled('greyscaleConversion_checkbox', false);
@@ -947,7 +974,7 @@
             }
 
             function Click_blackAndWhiteDither_checkbox() {
-                SetupBlackAndWhiteDithering();
+                Setup_blackAndWhiteDither();
             }
 
             function Click_greyscaleConversion_checkbox() {
@@ -1015,6 +1042,7 @@
                 document.getElementById('matchExactColorAlgorithm_checkbox').onclick = function(){Click_matchExactColorAlgorithm_checkbox()};
                 document.getElementById('minimizeColorDifferencesLinearAlgorithm_checkbox').onclick = function(){Click_minimizeColorDifferencesLinearAlgorithm_checkbox()};
                 document.getElementById('minimizeColorDifferencesExponentialAlgorithm_checkbox').onclick = function(){Click_minimizeColorDifferencesExponentialAlgorithm_checkbox()};
+                document.getElementById('minimizeDistanceToColorMatchAlgorithm_checkbox').onclick = function(){Click_minimizeDistanceToColorMatchAlgorithm_checkbox()};
                 document.getElementById('blackAndWhiteDither_checkbox').onclick = function(){Click_blackAndWhiteDither_checkbox()};
                 document.getElementById('greyscaleConversion_checkbox').onclick = function(){Click_greyscaleConversion_checkbox()};
                 document.getElementById('selectedColorDither_checkbox').onclick = function(){Click_selectedColorDither_checkbox()};
@@ -1299,23 +1327,12 @@
                 };
 
                 document.getElementById('saveFile_button').onclick = function() {
-                    var projectJsonOutput_checkbox = document.getElementById('projectJsonOutput_checkbox');
-                    var projectJsonOutput_checkbox_enabled = projectJsonOutput_checkbox.checked ? true:false;
-
-                    var binaryCharactersOnlyOutput_checkbox = document.getElementById('binaryCharactersOnlyOutput_checkbox');
-                    var binaryCharactersOnlyOutput_enabled = binaryCharactersOnlyOutput_checkbox.checked ? true:false;
-
-                    var binaryCharactersAndColorsOutput_checkbox = document.getElementById('binaryCharactersAndColorsOutput_checkbox');
-                    var binaryCharactersAndColorsOutput_enabled = binaryCharactersAndColorsOutput_checkbox.checked ? true:false;
-
-                    var cLanguageTextOutput_checkbox = document.getElementById('cLanguageTextOutput_checkbox');
-                    var cLanguageTextOutput_enabled = cLanguageTextOutput_checkbox.checked ? true:false;
-
-                    var asmLanguageTextOutput_checkbox = document.getElementById('asmLanguageTextOutput_checkbox');
-                    var asmLanguageTextOutput_enabled = asmLanguageTextOutput_checkbox.checked ? true:false;
-
-                    var c64OsOutput_checkbox = document.getElementById('c64OsOutput_checkbox');
-                    var c64OsOutput_enabled = c64OsOutput_checkbox.checked ? true:false;
+                    var projectJsonOutput_checkbox_enabled = GetCheckboxSetting('projectJsonOutput_checkbox');
+                    var binaryCharactersOnlyOutput_enabled = GetCheckboxSetting('binaryCharactersOnlyOutput_checkbox');
+                    var binaryCharactersAndColorsOutput_enabled = GetCheckboxSetting('binaryCharactersAndColorsOutput_checkbox');
+                    var cLanguageTextOutput_enabled = GetCheckboxSetting('cLanguageTextOutput_checkbox');
+                    var asmLanguageTextOutput_enabled = GetCheckboxSetting('asmLanguageTextOutput_checkbox');
+                    var c64OsOutput_enabled = GetCheckboxSetting('c64OsOutput_checkbox');
 
                     var inputFileName_file = document.getElementById('loadFileName_file');
                     var inputFileName = inputFileName_file.value.split('\\').pop().split('/').pop();
@@ -1553,6 +1570,18 @@
                         SetCheckboxSelected('minimizeColorDifferencesExponentialAlgorithm_checkbox', true);
                         Click_minimizeColorDifferencesExponentialAlgorithm_checkbox();
                     }
+                    SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', false);
+                    if (data["minimizeDistanceToColorMatchAlgorithm"]) {
+                        SetCheckboxSelected('minimizeDistanceToColorMatchAlgorithm_checkbox', true);
+                        Click_minimizeDistanceToColorMatchAlgorithm_checkbox();
+                    }
+                    if (data["distanceToMeasure"] == 1) {
+                        SetCheckboxSelected('distance1_radio', true);
+                        SetCheckboxSelected('distance2_radio', false);
+                    } else {
+                        SetCheckboxSelected('distance1_radio', false);
+                        SetCheckboxSelected('distance2_radio', true);
+                    }
 
                     SetCheckboxSelected('blackAndWhiteDither_checkbox', false);
                     if (data["blackAndWhiteDither"]) {
@@ -1599,20 +1628,15 @@
                 var workingImageCanvasContext = workingImageCanvas.getContext("2d", { willReadFrequently: true });
                 workingImageCanvasContext.drawImage(sourceImage,0,0,WIDTH,HEIGHT);
 
-                var blackAndWhiteDither_checkbox = document.getElementById('blackAndWhiteDither_checkbox');
-                var skipBlackAndWhiteDithering = blackAndWhiteDither_checkbox.checked ? false:true;
-                var selectedColorDither_checkbox = document.getElementById('selectedColorDither_checkbox');
-                var skipSelectedColorDithering = selectedColorDither_checkbox.checked ? false:true;
-                var propogateDitheringError_checkbox = document.getElementById('propogateDitheringError_checkbox');
-                var propogateDitheringError = propogateDitheringError_checkbox.checked ? true:false;
-                var greyscaleConversion_checkbox = document.getElementById('greyscaleConversion_checkbox');
-                var greyscaleConversion = greyscaleConversion_checkbox.checked ? true:false;
-                srcdata = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipBlackAndWhiteDithering, greyscaleConversion, skipSelectedColorDithering, propogateDitheringError, false, false, false); //Adjust contrast, Adjust brightness, Process negative
+                var skipBlackAndWhiteDithering = !GetCheckboxSetting('blackAndWhiteDither_checkbox');
+                var greyscaleConversion = GetCheckboxSetting('greyscaleConversion_checkbox');
+                var skipSelectedColorDithering = !GetCheckboxSetting('selectedColorDither_checkbox');
+                var propogateDitheringError = GetCheckboxSetting('propogateDitheringError_checkbox');
+                workingImageData = CreateWorkingImage(workingImageCanvasContext, WIDTH, HEIGHT, skipBlackAndWhiteDithering, greyscaleConversion, skipSelectedColorDithering, propogateDitheringError, false, false, false); //Adjust contrast, Adjust brightness, Process negative
             }
 
             function RenderCharacterSets() {
-                var formatCharacterSets_checkbox = document.getElementById('formatCharacterSets_checkbox');
-                var formatCharacterSets = formatCharacterSets_checkbox.checked ? true:false;
+                var formatCharacterSets = GetCheckboxSetting('formatCharacterSets_checkbox');
 
                 var character = document.getElementById("character");
                 characterContainer = document.getElementById("charsetContainer");
@@ -1753,16 +1777,16 @@
                 if (colorSubstitutions_text.length > 0) {
                     colorSubstitutions = colorSubstitutions_text.split(/\s+/);
                 }
-                var minimizeColorDifferencesLinearAlgorithm_checkbox = document.getElementById('minimizeColorDifferencesLinearAlgorithm_checkbox');
-                var minimizeColorDifferencesLinearAlgorithm = minimizeColorDifferencesLinearAlgorithm_checkbox.checked ? true:false;
-                var minimizeColorDifferencesExponentialAlgorithm_checkbox = document.getElementById('minimizeColorDifferencesExponentialAlgorithm_checkbox');
-                var minimizeColorDifferencesExponentialAlgorithm = minimizeColorDifferencesExponentialAlgorithm_checkbox.checked ? true:false;
-                var useGraphicsCharactersOnly_checkbox = document.getElementById('useGraphicsCharactersOnly_checkbox');
-                var useGraphicsCharactersOnly_enabled = useGraphicsCharactersOnly_checkbox.checked ? true:false;
+                var matchExactColorAlgorithm = GetCheckboxSetting('matchExactColorAlgorithm_checkbox');
+                var minimizeColorDifferencesLinearAlgorithm = GetCheckboxSetting('minimizeColorDifferencesLinearAlgorithm_checkbox');
+                var minimizeColorDifferencesExponentialAlgorithm = GetCheckboxSetting('minimizeColorDifferencesExponentialAlgorithm_checkbox');
+                var minimizeDistanceToColorMatchAlgorithm = GetCheckboxSetting('minimizeDistanceToColorMatchAlgorithm_checkbox');
+                var distanceToMeasure = GetCheckboxSetting('distance1_radio') ? 1:2;
+                var useGraphicsCharactersOnly_enabled = GetCheckboxSetting('useGraphicsCharactersOnly_checkbox');
 
                 var canvas = document.getElementById('canvas');
                 var canvasContext = canvas.getContext("2d", { willReadFrequently: true });
-                Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly_enabled, colorSubstitutions);
+                Render(canvasContext, matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distanceToMeasure, useGraphicsCharactersOnly_enabled, colorSubstitutions);
             }
             
             function WeightAlphaChannel(color, alpha) {
@@ -2052,7 +2076,7 @@
                 return originalCharacterColor;
             }
             
-            function Render(canvasContext, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly, colorSubstitutions) {
+            function Render(canvasContext, matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distanceToMeasure, useGraphicsCharactersOnly, colorSubstitutions) {
                 var charsWide = WIDTH  / CWIDTH;
                 var charsHigh = HEIGHT / CHEIGHT;
                 
@@ -2061,8 +2085,7 @@
                 var characterIndex = 0;
                 for(var y=0;y<charsHigh;y++) {
                     for(var x=0;x<charsWide;x++) {
-                        var imageBuf  = GetCharacterSizedPartOfSourceImage(characterIndex);
-                        var matchValues = FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly);
+                        var matchValues = FindMatch(characterIndex, matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distanceToMeasure, useGraphicsCharactersOnly);
 
                         var characterForegroundColor = GetC64ColorCode(C64_SELECTED_FOREGROUND_RGB_COLORS[matchValues.selectedForegroundColorIndex]);
                         c64CharacterForegroundColors[characterIndex] = characterForegroundColor;
@@ -2080,49 +2103,206 @@
                 }
             }
             
-            function GetCharacterSizedPartOfSourceImage(characterIndex) {
+
+            function GetCharacterSizedPartOfWorkingImage(characterIndex) {
                 var charsWide = (WIDTH  / CWIDTH); // 320 / 8 = 40
-                
-                var bytesPerRastRow = CWIDTH  * charsWide; // 8 * 40 = 320
-                var bytesPerCharRow = CHEIGHT * bytesPerRastRow; // 8 * 320 = 2560
-                
-                var startByte = 0;
-                while(characterIndex > charsWide) {
-                    startByte += bytesPerCharRow;
-                    characterIndex -= charsWide;
-                }
-                
-                while(characterIndex) {
-                    startByte += CWIDTH;
-                    characterIndex--;
-                }
-                
+                var bytesPerScreenRow = CWIDTH  * charsWide; // 8 * 40 = 320
+                var bytesPerCharacterRow = CHEIGHT * bytesPerScreenRow; // 8 * 320 = 2560
+                var startByte = (Math.floor(characterIndex / charsWide) * bytesPerCharacterRow) + ((characterIndex % charsWide) * CWIDTH);
+
                 var charBuf = [];
                 for(var y=0;y<CHEIGHT;y++) {
                     for(var x=0;x<CWIDTH;x++) {
-                        charBuf.push(srcdata[startByte+x]);
+                        charBuf.push(workingImageData[startByte+x]);
                     }
-                    startByte += bytesPerRastRow;
+                    startByte += bytesPerScreenRow;
                 }
                 
                 return charBuf;
             }
+
+            function GetDistanceToColorMatch(charPixelColor, charPixelX, charPixelY, workingImageBuf) {
+                var shortestDistance = 16; //maximum distance across two charPixelacters
+                for(var y=0;y<CHEIGHT;y++) {
+                    for(var x=0;x<CWIDTH;x++) {
+                        if ( (workingImageBuf[CWIDTH*y + x][0] == charPixelColor[0]) &&
+                             (workingImageBuf[CWIDTH*y + x][1] == charPixelColor[1]) &&
+                             (workingImageBuf[CWIDTH*y + x][2] == charPixelColor[2]) ) {
+                            var currentDistance = Math.floor(Math.sqrt((x - charPixelX)**2 + (y - charPixelY)**2));
+                            if (currentDistance < shortestDistance) {
+                                shortestDistance = currentDistance;
+                            }
+                        }
+                    }
+                }
+                return shortestDistance; 
+            }
+
+            function GetDistancesToColorMatch(characterIndex, charBuf, distanceToMeasure) {
+                var totalChars = (WIDTH  / CWIDTH) * 25;
+                var distancesToColorMatch = [];
+
+                // We need to get the character sized image parts from each side of the original
+                //
+                //   characterIndex - 41,characterIndex - 40,characterIndex - 39
+                //   characterIndex -  1,characterIndex     ,characterIndex +  1
+                //   characterIndex + 39,characterIndex + 40,characterIndex + 41
+                //
+                //   above left          above               above right
+                //   characterIndex - 41,characterIndex - 40,characterIndex - 39
+                if (distanceToMeasure == 2) {
+                    if ((characterIndex - 41) >= 0) {
+                        aboveLeft_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex - 41);
+                    }
+                    if ((characterIndex - 40) >= 0) {
+                        above_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex - 40);
+                    }
+                    if ((characterIndex - 39) >= 0) {
+                        aboveRight_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex - 39);
+                    }
+
+                    //   left                current             right
+                    //   characterIndex -  1,characterIndex     ,characterIndex +  1
+                    if ((characterIndex -  1) >= 0) {
+                        left_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex - 1);
+                    }
+                }
+
+                current_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex);
+
+                if (distanceToMeasure == 2) {
+                    if ((characterIndex +  1) < totalChars) {
+                        right_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex + 1);
+                    }
+
+                    //   below left          below               below right
+                    //   characterIndex + 39,characterIndex + 40,characterIndex + 41
+                    if ((characterIndex + 39) < totalChars) {
+                        belowLeft_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex + 39);
+                    }
+                    if ((characterIndex + 40) < totalChars) {
+                        below_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex + 40);
+                    }
+                    if ((characterIndex + 41) < totalChars) {
+                        belowRight_workingImageBuf = GetCharacterSizedPartOfWorkingImage(characterIndex + 41);
+                    }
+                }
+
+                for(var y=0;y<CHEIGHT;y++) {
+                    for(var x=0;x<CWIDTH;x++) {
+
+                        var shortestDistance = 8; //if not found, use maximum distance across one character
+                        if (distanceToMeasure == 2) {
+                            shortestDistance = 16; //if not found, use maximum distance across two characters
+
+                            //   above left          above               above right
+                            //   characterIndex - 41,characterIndex - 40,characterIndex - 39
+                            if ((characterIndex - 41) >= 0) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x+8, y+8, aboveLeft_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                            if ((characterIndex - 40) >= 0) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x  , y+8, above_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                            if ((characterIndex - 39) >= 0) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x-8, y+8, aboveRight_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+
+                            //   left                current             right
+                            //   characterIndex -  1,characterIndex     ,characterIndex +  1
+                            if ((characterIndex -  1) >= 0) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x+8, y  , left_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                        }
+
+                        var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x  , y  , current_workingImageBuf);
+                        if (currentDistance < shortestDistance)
+                        {
+                            shortestDistance = currentDistance;
+                        }
+
+                        if (distanceToMeasure == 2) {
+                            if ((characterIndex +  1) < totalChars) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x-8, y  , right_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+
+                            //   below left          below               below right
+                            //   characterIndex + 39,characterIndex + 40,characterIndex + 41
+                            if ((characterIndex + 39) < totalChars) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x+8, y-8, belowLeft_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                            if ((characterIndex + 40) < totalChars) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x  , y-8, below_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                            if ((characterIndex + 41) < totalChars) {
+                                var currentDistance = GetDistanceToColorMatch(charBuf[y*CWIDTH + x], x-8, y-8, belowRight_workingImageBuf);
+                                if (currentDistance < shortestDistance)
+                                {
+                                    shortestDistance = currentDistance;
+                                }
+                            }
+                        }
+                        distancesToColorMatch.push(shortestDistance);
+                    }
+                }
+                return distancesToColorMatch; 
+            }
             
-            function FindMatch(imageBuf, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, useGraphicsCharactersOnly) {
-                var maximumDifference = (CWIDTH * CHEIGHT);
+            function FindMatch(characterIndex, matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distanceToMeasure, useGraphicsCharactersOnly) {
+                var maximumDifference = (CWIDTH * CHEIGHT); //default for matchExactColorAlgorithm
                 if (minimizeColorDifferencesLinearAlgorithm) {
                     maximumDifference *= 3*255;
                 } else if (minimizeColorDifferencesExponentialAlgorithm) {
                     maximumDifference *= 3*(255**2);
+                } else if (minimizeDistanceToColorMatchAlgorithm) {
+                    if (distanceToMeasure == 1) {
+                        maximumDifference = (CWIDTH * CHEIGHT) * 8;
+                    } else { //distance is 2
+                        maximumDifference = (CWIDTH * CHEIGHT) * 16;
+                    }
                 }
                 maximumDifference++;
                 var smallestDifference = maximumDifference;
                 var bestMatch = {characterOffset: 0, selectedForegroundColorIndex: 0, selectedBackgroundColorIndex: 0};
                 
+                var characterSizedPartOfWorkingImage = GetCharacterSizedPartOfWorkingImage(characterIndex);
+
                 // check the current character against all available colors for the best match.
                 for(var i=0; i<CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length*C64_SELECTED_BACKGROUND_RGB_COLORS.length; i++) {
                     if ( (!useGraphicsCharactersOnly) || ((i%128) >= 64) ) {
-                        var currentDifference = Diff(imageBuf, chardata[i], minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm);
+                        var distancesToColorMatch = null;
+                        if (minimizeDistanceToColorMatchAlgorithm)
+                        {
+                            distancesToColorMatch = GetDistancesToColorMatch(characterIndex, chardata[i], distanceToMeasure);
+                        }
+                        var currentDifference = Diff(characterSizedPartOfWorkingImage, chardata[i], matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distancesToColorMatch);
                         if(currentDifference < smallestDifference) {
                             bestMatch.characterOffset = i;
                             bestMatch.selectedBackgroundColorIndex = Math.floor(i/(CHARACTERS*C64_SELECTED_FOREGROUND_RGB_COLORS.length));
@@ -2138,13 +2318,15 @@
                 return bestMatch;
             }
             
-            function Diff(bufa, bufb, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm) {
+            function Diff(bufa, bufb, matchExactColorAlgorithm, minimizeColorDifferencesLinearAlgorithm, minimizeColorDifferencesExponentialAlgorithm, minimizeDistanceToColorMatchAlgorithm, distancesToClosestColorMatch) {
                 var difference = 0;
                 for(var i=0; i<bufa.length; i++) {
                     if (minimizeColorDifferencesLinearAlgorithm) {
-                            difference += Math.abs(bufa[i][0] - bufb[i][0]) + Math.abs(bufa[i][1] - bufb[i][1]) + Math.abs(bufa[i][2] - bufb[i][2]);
+                        difference += Math.abs(bufa[i][0] - bufb[i][0]) + Math.abs(bufa[i][1] - bufb[i][1]) + Math.abs(bufa[i][2] - bufb[i][2]);
                     } else if (minimizeColorDifferencesExponentialAlgorithm) {
                         difference += (bufa[i][0] - bufb[i][0])**2 + (bufa[i][1] - bufb[i][1])**2 + (bufa[i][2] - bufb[i][2])**2;
+                    } else if (minimizeDistanceToColorMatchAlgorithm) {
+                        difference += distancesToClosestColorMatch[i];
                     } else { //matchExactColorAlgorithm
                         if ( (bufa[i][0] != bufb[i][0]) || (bufa[i][1] != bufb[i][1]) || (bufa[i][2] != bufb[i][2]) ) {
                             difference++;
@@ -2155,7 +2337,7 @@
             }
         </script>
 
-        <h2><center>C64 PETSCII Art Generator v7</center></h2>
+        <h2><center>C64 PETSCII Art Generator v8</center></h2>
 
         <center>Originally written by Gregory Nacu, <a href="https://c64os.com">C64OS.com</a></center></b>
         <center>Enhancements by Warren Wilbur</center>
@@ -2185,10 +2367,10 @@
         <h5>2.1. Choose VIC-II character graphics mode</h3>
 
         <input type="checkbox" id="vic2StandardMode_checkbox" checked class="checkbox" />
-        <label for="colorBlack_checkbox">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
+        <label for="vic2StandardMode_checkbox">Standard Character Mode (256 characters, 16 foreground colors, 1 background color)</label>
         <br>
         <input type="checkbox" id="vic2ExtendedMode_checkbox" class="checkbox" />
-        <label for="colorBlack_checkbox">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
+        <label for="vic2ExtendedMode_checkbox">Extended (Background) Color Mode (64 characters, 16 foreground colors, 4 background colors)</label>
         <br>
         <br>
         Color presets:
@@ -2300,7 +2482,15 @@
         <label for="minimizeColorDifferencesLinearAlgorithm_checkbox">Use 'minimize absolute color differences (linear)' algorithm</label>&nbsp;&nbsp;&nbsp;
 
         <input type="checkbox" id="minimizeColorDifferencesExponentialAlgorithm_checkbox" checked class="checkbox" />
-        <label for="minimizeColorDifferencesExponentialAlgorithm_checkbox">Use 'minimize absolute color differences (exponential)' algorithm</label>
+        <label for="minimizeColorDifferencesExponentialAlgorithm_checkbox">Use 'minimize absolute color differences (exponential)' algorithm</label>&nbsp;&nbsp;&nbsp;
+
+        <input type="checkbox" id="minimizeDistanceToColorMatchAlgorithm_checkbox" class="checkbox" />
+        <label for="minimizeDistanceToColorMatchAlgorithm_checkbox">Use 'minimize distance to color match' algorithm</label>
+        - distance from origin (in characters) to measure:
+        <input type="radio" id="distance1_radio" name="distance_radio" checked value="1">
+        <label for"distance1_radio">1 (slow)</label>
+        <input type="radio" id="distance2_radio" name="distance_radio" value="2">
+        <label for"distance2_radio">2 (very slow)</label>
 
         <h5>3.2. Select working image adjustments to enhance output</h5>
         <input type="checkbox" id="blackAndWhiteDither_checkbox" class="checkbox" />
