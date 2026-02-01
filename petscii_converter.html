@@ -75,12 +75,11 @@
             //     of 1 or more would be treated equally (i.e. a miss by a bit would
             //     be the same as a miss by alot). Add dithering to C64 color palette
             //     to allow exact color matching in multi-color (required to calculate
-            //     miss distance).
+            //     miss distance). Support import into lvllvl editor (using .C format).
             //
             //TODO v9: Planned enhancement.
             //     Add support for either web service or command line usage (for build
-            //     toolchain use) for automatically converting image files. Add support
-            //     for exporting output file format into CBM prg Studio.
+            //     toolchain use) for automatically converting image files.
             //
             var CHARACTERS = 256;
             var WIDTH      = 320;
@@ -126,9 +125,6 @@
             var C64_SELECTED_FOREGROUND_RGB_COLORS = [];
             var C64_SELECTED_BACKGROUND_RGB_COLORS = [];
  
-            var contrast = 0;
-            var brightness = 0;
-            
             // compares each color component of RGB color and returns TRUE on match, FALSE otherwise.
             function MatchRgbColors(rgbColor1, rgbColor2) {
                 match = false;
@@ -490,21 +486,13 @@
                             blob = new Blob(saveFields, {type: "application/octet-stream"});
                         }
                     } else if (cLanguageTextOutput_enabled) {
-                        //output format is text .C language format, provided for import into Marq's PETSCII editor (not compatible when Extended Background Color Mode is selected as three extra background color codes are saved)
-                        var bufStr = "unsigned char frame0000[]={";
+                        //Output format is text .C language format, provided for import into Marq's PETSCII editor (not compatible when Extended Background Color Mode is selected as the three extra background color codes are not saved).
+                        //Works for import into lvllvl (compatible when Extended Background Color Mode is selected but you must manually set 'Screen/C64 Extended GB Colour Mode' and then set each extra background color as they are not saved).
+                        var bufStr = "unsigned char frame[] = {  ";
 
-                        if (vic2ExtendedMode_enabled) {
-                            bufStr = bufStr + "// border,bg,bg2,bg3,bg4,chars,colors\n" +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[1]), false, colorSubstitutions) + "," +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[2]), false, colorSubstitutions) + "," +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[3]), false, colorSubstitutions) + ",\n";
-                        } else {
-                            bufStr = bufStr + "// border,bg,chars,colors\n" +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
-                                              ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + ",\n";
-                        }
+                        bufStr = bufStr + "// border,bg,chars,colors\n" +
+                                          ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + "," +
+                                          ProcessColorSubstitutions(GetC64ColorCode(C64_SELECTED_BACKGROUND_RGB_COLORS[0]), false, colorSubstitutions) + ",\n";
 
                         for (var i=0;i<characterCodes.length;i++) {
                             characterCode = characterCodes[i];
@@ -529,12 +517,11 @@
                         }
 
                         bufStr = bufStr + "};\n";
-                        if (characterSetUpper256_enabled) {
+                        //Works for import into lvllvl (compatible when custom character set is selected but you must manually load the tileset into lvllvl).
+                        if ( (characterSetUpper256_enabled) || (characterSetCustom_enabled) ) {
                             bufStr = bufStr + "// META: 40 25 C64 upper";
                         } else if (characterSetUpperLower256_enabled) {
                             bufStr = bufStr + "// META: 40 25 C64 lower";
-                        } else if (characterSetCustom_enabled) {
-                            bufStr = bufStr + "// META: 40 25 C64 custom"; //not compatible when custom character set used
                         }
                         blob = new Blob([bufStr], {type: "text/plain"});
                     } else if (asmLanguageTextOutput_enabled) {
@@ -1133,12 +1120,13 @@
                     var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
                     var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
+                        backgroundColor1_number.value = 0;
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 11;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
-                        backgroundColor3_number.value = 15;
+                        backgroundColor3_number.value = 12;
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
-                        backgroundColor4_number.value = 0;
+                        backgroundColor4_number.value = 15;
                     }
                 }
 
@@ -1165,12 +1153,13 @@
                     var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
                     var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
+                        backgroundColor1_number.value = 1;
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
-                        backgroundColor2_number.value = 6;
+                        backgroundColor2_number.value = 3;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
-                        backgroundColor3_number.value = 14;
+                        backgroundColor3_number.value = 6;
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
-                        backgroundColor4_number.value = 1;
+                        backgroundColor4_number.value = 14;
                     }
                 };
 
@@ -1197,12 +1186,13 @@
                     var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
                     var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
+                        backgroundColor1_number.value = 0;
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
                         backgroundColor2_number.value = 8;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
-                        backgroundColor3_number.value = 11;
+                        backgroundColor3_number.value = 9;
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
-                        backgroundColor4_number.value = 0;
+                        backgroundColor4_number.value = 11;
                     }
                 };
 
@@ -1229,10 +1219,11 @@
                     var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
                     var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
+                        backgroundColor1_number.value = 2;
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
-                        backgroundColor2_number.value = 9;
+                        backgroundColor2_number.value = 8;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
-                        backgroundColor3_number.value = 8;
+                        backgroundColor3_number.value = 9;
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
                         backgroundColor4_number.value = 10;
                     }
@@ -1261,12 +1252,13 @@
                     var vic2ExtendedMode_checkbox = document.getElementById('vic2ExtendedMode_checkbox');
                     var vic2ExtendedMode_enabled = vic2ExtendedMode_checkbox.checked;
                     if (vic2ExtendedMode_enabled) {
+                        backgroundColor1_number.value = 3;
                         var backgroundColor2_number = document.getElementById('backgroundColor2_number');
-                        backgroundColor2_number.value = 13;
+                        backgroundColor2_number.value = 5;
                         var backgroundColor3_number = document.getElementById('backgroundColor3_number');
-                        backgroundColor3_number.value = 3;
+                        backgroundColor3_number.value = 7;
                         var backgroundColor4_number = document.getElementById('backgroundColor4_number');
-                        backgroundColor4_number.value = 7;
+                        backgroundColor4_number.value = 13;
                     }
                 };
 
@@ -1626,7 +1618,7 @@
 
                 var workingImageCanvas = document.getElementById('workingImageCanvas');
                 var workingImageCanvasContext = workingImageCanvas.getContext("2d", { willReadFrequently: true });
-                workingImageCanvasContext.drawImage(sourceImage,0,0,WIDTH,HEIGHT);
+                workingImageCanvasContext.drawImage(sourceImage, 0, 0, WIDTH, HEIGHT);
 
                 var skipBlackAndWhiteDithering = !GetCheckboxSetting('blackAndWhiteDither_checkbox');
                 var greyscaleConversion = GetCheckboxSetting('greyscaleConversion_checkbox');
@@ -1798,11 +1790,11 @@
             }
 
             function CreateWorkingImage(context, w, h, skipBlackAndWhiteDithering, greyscaleConversion, skipSelectedColorDithering, propogateDitheringError, skipContrast, skipBrightness, skipNegative) {
-                var imgd = context.getImageData(0, 0, w,h);
+                var imgd = context.getImageData(0, 0, w, h);
 
                 if (!skipContrast) {
                     var imageContrast_number = document.getElementById('imageContrast_number');
-                    contrast = parseInt(imageContrast_number.value);
+                    var contrast = parseInt(imageContrast_number.value);
                     if (contrast != 0) {
                         imgd = ContrastImage(imgd, contrast);
                     } 
@@ -1810,7 +1802,7 @@
 
                 if (!skipBrightness) {
                     var imageBrightness_number = document.getElementById('imageBrightness_number');
-                    brightness = parseInt(imageBrightness_number.value);
+                    var brightness = parseInt(imageBrightness_number.value);
                     if (brightness != 0) {
                         imgd = BrightnessImage(imgd, brightness);
                     }
@@ -2549,7 +2541,7 @@
         <label for="binaryCharactersAndColorsOutput_checkbox">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="cLanguageTextOutput_checkbox" checked class="checkbox" />
-        <label for="cLanguageTextOutput_checkbox">Save as (text) .c output format (for import into Marq's PETSCII editor, not compatible when custom character set or Extended Background Color Mode are selected)</label>&nbsp;&nbsp;&nbsp;
+        <label for="cLanguageTextOutput_checkbox">Save as (text) .C output format (for import into Marq's PETSCII editor). Not compatible with Marq's PETSCII editor when custom character set or Extended Background Color Mode are selected. This format can be used to import into lvllvl but you will have to manually load the tile set (Tiles/Load / Import Tile Set... and set Tiles in File to 256) if any custom character set is used, set Screen/C64 Extended GB Colour Mode if Extended Background Color Mode is used and set each extra background and foreground color on the tile set as the extended background colors are not saved in this format.</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="asmLanguageTextOutput_checkbox" class="checkbox" />
         <label for="asmLanguageTextOutput_checkbox">Save as (text) .asm output format (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;

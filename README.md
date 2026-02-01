@@ -17,6 +17,6 @@ Loading source images and character set images requires support for cross origin
 
 The image does not need to be 320x200, it will be automatically scaled and resized to fit the 320x200 canvas. 
 
-Save file formats are provided to support editing in C64 Studio and Marq's PETSCII editor. You can also save the file if you want to load it up on a real C64, or in an emulator. The .D64 file contains several prerendered and saved files. It also contains the BASIC program I wrote to render the .pet files to the C64's screen.
+Save file formats are provided to support editing in C64 Studio and Marq's PETSCII editor (also works with lvllvl). You can also save the file if you want to load it up on a real C64, or in an emulator. The .D64 file contains several prerendered and saved files. It also contains the BASIC program I wrote to render the .pet files to the C64's screen.
 
 Enjoy.
