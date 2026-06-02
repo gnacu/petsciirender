@@ -244,6 +244,7 @@
             }
 
             var chardata = [];
+            var workingImageName = "";
             var workingImageData = [];
             var petsciiCharacterCodes        = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
             var c64CharacterForegroundColors = new Uint8Array((WIDTH/CWIDTH) * (HEIGHT/CHEIGHT));
@@ -361,7 +362,7 @@
                 return checkboxElement.checked ? true:false;
             }
 
-			var SaveByteArray = (function () {
+            var SaveByteArray = (function () {
                 var a = document.createElement("a");
                 document.body.appendChild(a);
                 a.style = "display: none";
@@ -1326,9 +1327,7 @@
                     var asmLanguageTextOutput_enabled = GetCheckboxSetting('asmLanguageTextOutput_checkbox');
                     var c64OsOutput_enabled = GetCheckboxSetting('c64OsOutput_checkbox');
 
-                    var inputFileName_file = document.getElementById('loadFileName_file');
-                    var inputFileName = inputFileName_file.value.split('\\').pop().split('/').pop();
-                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, inputFileName, document.getElementById('saveFileName').value,
+                    SaveByteArray(petsciiCharacterCodes, c64CharacterForegroundColors, c64CharacterBackgroundColors, workingImageName, document.getElementById('saveFileName').value,
                                   projectJsonOutput_checkbox_enabled, binaryCharactersOnlyOutput_enabled, binaryCharactersAndColorsOutput_enabled, cLanguageTextOutput_enabled, asmLanguageTextOutput_enabled, c64OsOutput_enabled);
                 };
 
@@ -1435,6 +1434,7 @@
             function LoadImageFile(inputFileName) {
                 var sourceImage = document.getElementById('sourceImage');
                 sourceImage.src = "Sample Images/" + inputFileName;
+				workingImageName = inputFileName;
                 //sourceImage.crossOrigin = null;
                 //sourceImage.crossOrigin = "Anonymous";
                 sourceImage.title = inputFileName;
@@ -2541,7 +2541,7 @@
         <label for="binaryCharactersAndColorsOutput_checkbox">Save as (binary) stream of 1000 PETSCII character codes followed by 1000 character foreground color codes (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="cLanguageTextOutput_checkbox" checked class="checkbox" />
-        <label for="cLanguageTextOutput_checkbox">Save as (text) .C output format (for import into Marq's PETSCII editor). Not compatible with Marq's PETSCII editor when custom character set or Extended Background Color Mode are selected. This format can be used to import into lvllvl but you will have to manually load the tile set (Tiles/Load / Import Tile Set... and set Tiles in File to 256) if any custom character set is used, set Screen/C64 Extended GB Colour Mode if Extended Background Color Mode is used and set each extra background and foreground color on the tile set as the extended background colors are not saved in this format.</label>&nbsp;&nbsp;&nbsp;
+        <label for="cLanguageTextOutput_checkbox">Save as (text) .C output format (for import into Marq's PETSCII editor). Not compatible with Marq's PETSCII editor when custom character set or Extended Background Color Mode are selected. This format can be used to import into lvllvl but you will have to manually load the tile set (Tiles/Load/Import Tile Set... and set Tiles in File to 256) if any custom character set is used, set Screen/C64 Extended GB Colour Mode if Extended Background Color Mode is used and set each extra background and foreground color on the tile set as the extended background colors are not saved in this format.</label>&nbsp;&nbsp;&nbsp;
         <br>
         <input type="checkbox" id="asmLanguageTextOutput_checkbox" class="checkbox" />
         <label for="asmLanguageTextOutput_checkbox">Save as (text) .asm output format (for import into C64 Studio)</label>&nbsp;&nbsp;&nbsp;
